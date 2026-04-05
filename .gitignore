@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Large binary data files (>100MB, exceeds GitHub limit)
+landmarks/uv_idm.mat
+
+# Build output
+dist/
+.vite/
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env

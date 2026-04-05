@@ -1,0 +1,3 @@
+newmtl FaceTexture
+map_Kd cheo1_frame0010.png
+disp TestSamples/examples/results_1/cheo1_frame0010/cheo1_frame0010_normals.png
