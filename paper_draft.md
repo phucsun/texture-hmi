@@ -1,4 +1,4 @@
-# Free-Viewpoint 4D Talking Face Reconstruction via Complete Surface Texture Transfer
+# Complete-Texture 4D Face Avatar Reconstruction via Geometry-Aware Cross-Topology UV Transfer
 
 ---
 
@@ -13,9 +13,9 @@ Email: {author1, author3}@university.edu, author2@university2.edu
 
 ## Abstract
 
-Monocular 3D face reconstruction methods recover accurate face geometry from a single image but yield only partial, camera-view-baked textures: occluded surface regions—ears, scalp, and the back of the head—remain blank in the UV atlas, making the reconstructed mesh unsuitable for free-viewpoint rendering or 4D talking face animation. We present a complete pipeline that bridges this gap by coupling a UV-space inpainting diffusion model with a geometry-aware cross-topology texture transfer module, producing a full-surface texture atlas that covers the entire head from a single photograph. The completed texture is applied uniformly across an animated mesh sequence to form a 4D representation: an avatar that is simultaneously navigable in three spatial dimensions and across the temporal axis of expressive talking motion. We formalize the 4D texture property as a coverage condition on the UV domain and show that partial textures violate this condition for the majority of the camera-pose sphere, while our complete texture restores it unconditionally. Quantitative evaluation on a large multi-view face dataset demonstrates consistent and substantial improvements over the monocular reconstruction baseline across all evaluated subjects on standard image quality metrics. Our method requires a single photograph as input, generalizes across identities without per-subject training, and produces a temporally coherent 4D avatar whose texture quality is uniform regardless of viewing direction.
+Monocular 3D face reconstruction methods recover accurate geometry from a single image but yield only partial, camera-view-baked textures: occluded surface regions—ears, scalp, and the back of the head—remain blank in the UV atlas, making the reconstructed mesh unsuitable for free-viewpoint rendering or 4D animated face synthesis. We present a complete pipeline that bridges this gap by coupling a UV-space inpainting diffusion model with a geometry-aware cross-topology texture transfer module, producing a full-surface texture atlas that covers the entire head from a single photograph. The completed texture is applied uniformly across an animated mesh sequence to form a 4D representation: an avatar simultaneously navigable in three spatial dimensions and across the temporal axis of expressive face motion. We formalize the 4D texture property as a coverage condition on the UV domain and show that partial textures violate this condition for the majority of the camera-pose sphere, while our complete texture restores it unconditionally. Quantitative evaluation on a large multi-view face dataset demonstrates consistent and substantial improvements over the monocular reconstruction baseline across all evaluated subjects on standard image quality metrics. Our method requires a single photograph as input, generalizes across identities without per-subject training, and produces a temporally coherent 4D avatar whose texture quality is uniform regardless of viewing direction.
 
-**Keywords:** 4D talking face, complete texture, UV inpainting, cross-topology texture transfer, free-viewpoint rendering, monocular face reconstruction
+**Keywords:** 4D face avatar, complete texture, UV inpainting, cross-topology texture transfer, free-viewpoint rendering, monocular face reconstruction
 
 ---
 
@@ -23,22 +23,21 @@ Monocular 3D face reconstruction methods recover accurate face geometry from a s
 
 The proliferation of remote communication—accelerated by global events that forced billions of people to interact primarily through digital channels—has exposed a fundamental gap between what video conferencing delivers and what human presence truly requires. Flat 2D video streams are bandwidth-hungry (1–5 Mbps for HD), privacy-invasive (the raw camera feed is transmitted unconditionally), and viewpoint-locked: the receiver sees only the angle captured by the sender's camera. More critically, 2D video cannot be manipulated in 3D space, overlaid in augmented reality environments, or integrated into spatial computing platforms such as virtual meeting rooms or immersive e-learning systems.
 
-A compelling alternative is *parametric avatar streaming*: instead of transmitting raw pixels, the sender's face is represented as a compact 3D morphable model whose expression parameters—roughly 500 floating-point values per frame—are transmitted at a fraction of the bandwidth of raw video, while the receiver reconstructs and renders the avatar locally. FLAME [2] parameters compressed to 16-bit half-precision require under 1 KB per frame, compared to approximately 30–150 KB per HD video frame—a 30× to 150× bandwidth reduction. Critically, since the receiver renders the mesh locally, the avatar can be viewed from *any angle*, enabling immersive free-viewpoint telepresence without additional hardware.
+A compelling alternative is *parametric avatar streaming*: instead of transmitting raw pixels, the sender's face is represented as a compact parametric model whose expression parameters—roughly 500 floating-point values per frame—are transmitted at a fraction of raw-video bandwidth, while the receiver renders the avatar locally. Such parameters compressed to 16-bit half-precision require under 1 KB per frame, compared to approximately 30–150 KB per HD video frame. Since the receiver renders the mesh locally, the avatar can be viewed from *any angle*, enabling immersive free-viewpoint telepresence without additional hardware.
 
-This vision, however, hinges on a prerequisite that existing pipelines fail to satisfy: **the avatar must possess a complete, photorealistic texture across its entire surface.** Monocular 3D Morphable Model fitting methods, exemplified by DECA [1], recover accurate FLAME mesh geometry but bake the texture exclusively from visible pixels of the input photograph. Regions occluded at capture time—the back of the head, ears, temples, and portions of the neck—remain blank in the UV atlas. When the receiver rotates the avatar even slightly away from the original capture angle, these gaps are immediately exposed, shattering the illusion of presence and making free-viewpoint rendering impractical (Fig. 1).
+This vision, however, hinges on a prerequisite that existing pipelines fail to satisfy: **the avatar must possess a complete, photorealistic texture across its entire surface.** Monocular 3D face reconstruction methods [1] recover accurate mesh geometry but bake the texture exclusively from the visible pixels of the input photograph. Regions occluded at capture time—the back of the head, ears, temples, and portions of the neck—remain blank in the UV atlas. When the receiver rotates the avatar even slightly away from the original capture angle, these gaps are immediately exposed, making free-viewpoint rendering impractical (Fig. 1).
 
-The need for complete-texture 3D avatars extends well beyond video conferencing. In **e-learning and distance education**, a single enrollment photograph can generate a persistent instructor avatar that delivers course content interactively—critical for institutions in bandwidth-constrained regions where high-resolution video streaming is cost-prohibitive. In **digital accessibility**, people with facial disfigurements or medical conditions affecting appearance can adopt a fully-textured avatar that presents a normalized digital identity in online settings. In **cultural and historical preservation**, one archived photograph of a historical figure can yield an interactive 3D talking memorial accessible from a museum website. In each of these scenarios, the completeness of the texture—and the ability to deploy the avatar in a standard web browser without specialized hardware—is the decisive enabling factor.
+The need for complete-texture 3D avatars extends well beyond video conferencing. In **e-learning and distance education**, a single enrollment photograph can generate a persistent instructor avatar that delivers course content interactively. In **digital accessibility**, people with conditions affecting facial appearance can adopt a fully-textured avatar presenting a normalized digital identity. In **cultural and historical preservation**, one archived photograph of a historical figure can yield an interactive 3D memorial. In each of these scenarios, texture completeness is the decisive enabling factor.
 
-UV-space inpainting models such as UV-IDM [3] have recently demonstrated the ability to synthesize plausible texture for occluded facial regions in the Basel Face Model (BFM) UV layout. However, UV-IDM operates in the BFM parameterization while talking head animation systems use FLAME, creating a representation mismatch that has not been systematically addressed. Bridging this gap requires a geometry-aware cross-topology texture transfer—precisely the contribution of this paper.
+UV-space inpainting models [3] have recently demonstrated the ability to synthesize plausible texture for occluded facial regions in a high-resolution UV layout. However, such models operate in the UV parameterization of one mesh topology while animated face systems use a different topology optimized for real-time deformation—a representation mismatch that has not been systematically addressed. Bridging this gap requires a geometry-aware cross-topology texture transfer—precisely the contribution of this paper.
 
 We present a complete end-to-end pipeline that:
-1. Reconstructs FLAME geometry frame-by-frame from monocular video using DECA;
-2. Completes the full BFM UV texture atlas using UV-IDM from a single representative frame;
-3. Transfers the completed texture from BFM UV space to FLAME UV space via Procrustes + ICP alignment and vectorized UV rebaking;
-4. Assembles the per-frame textured FLAME meshes into a 4D talking face representation;
-5. Deploys the avatar in a BabylonJS web viewer with frame-accurate audio synchronization, enabling real-time interactive playback in any modern browser with zero client-side installation.
+1. Reconstructs face mesh geometry frame-by-frame from monocular video using a parametric reconstruction model [1];
+2. Completes the full UV texture atlas from a single representative frame using a UV-space inpainting model [3];
+3. Transfers the completed texture across mesh topologies via Procrustes + ICP alignment and vectorized UV rebaking;
+4. Assembles the per-frame textured meshes into a 4D face avatar representation.
 
-The "4D" descriptor reflects that our output is not a static textured model but an animated sequence of complete-texture 3D meshes indexed by time—a four-dimensional avatar that can be paused, scrubbed, and orbited freely during playback. The entire pipeline, from a single input photograph to a browser-ready 4D avatar, completes in under 60 seconds on consumer hardware.
+The "4D" descriptor reflects that our output is not a static textured model but an animated sequence of complete-texture 3D meshes indexed by time—a four-dimensional avatar navigable in both space and time. The entire pipeline completes in under 90 seconds on consumer hardware.
 
 **Contributions.** This paper makes the following specific contributions:
 - A formal definition of the *4D texture avatar* as a coverage condition on the UV domain, establishing texture completeness as a necessary—not merely desirable—property for free-viewpoint animated face rendering.
@@ -50,11 +49,11 @@ The "4D" descriptor reflects that our output is not a static textured model but 
 
 ## 2. Related Work
 
-**Monocular 3D face reconstruction.** 3D Morphable Models [4] provide a low-dimensional parametric space for face shape and texture, enabling reconstruction from as few as one image. Early fitting methods [5] relied on iterative optimization; recent deep learning approaches regress 3DMM parameters directly [6,7]. DECA [1] extends this to per-frame expression tracking by disentangling identity shape, expression, jaw pose, and head pose, achieving state-of-the-art reconstruction quality from monocular video. EMOCA [8] adds emotionally-driven expression supervision. All these methods share the same texture bottleneck: the estimated albedo is reconstructed from the visible image region only, leaving a large portion of the UV atlas blank or extrapolated poorly—the gap that motivates this work.
+**Monocular 3D face reconstruction.** 3D Morphable Models [4] provide a low-dimensional parametric space for face shape and texture, enabling reconstruction from as few as one image. Early fitting methods [5] relied on iterative optimization; recent deep learning approaches regress morphable model parameters directly [6,7]. State-of-the-art methods [1,8] extend this to per-frame expression tracking, achieving high-quality reconstruction from monocular video. All these methods share the same texture bottleneck: the estimated albedo is reconstructed from the visible image region only, leaving a large portion of the UV atlas blank or extrapolated poorly—the gap that motivates this work.
 
-**UV texture completion.** Face texture completion in UV space has been addressed by GAN-based inpainting models [9] that learn to hallucinate realistic skin texture for occluded regions conditioned on visible ones. More recently, diffusion model backbones applied directly to UV atlas layouts achieve significantly higher fidelity for complex skin tones and fine facial features [3]. Our system treats such a UV inpainting model as a black-box completer and contributes the missing bridge: transferring the completed texture onto a different mesh topology without seam artifacts or coverage gaps.
+**UV texture completion.** Face texture completion in UV space has been addressed by GAN-based inpainting models [9] that learn to hallucinate realistic skin texture for occluded regions conditioned on visible ones. More recently, diffusion model backbones applied directly to UV atlas layouts [3] achieve significantly higher fidelity for complex skin tones and fine facial features. Our system treats such a model as a black-box completer and contributes the missing bridge: transferring the completed texture onto a different mesh topology without seam artifacts or coverage gaps.
 
-**Talking head and 4D face synthesis.** NeRF-based methods [10,11] achieve photo-realistic novel-view synthesis but are identity-specific, requiring minutes to hours of per-subject training and substantial compute at inference. Explicit mesh-based talking head systems [12,13] operate in real time and generalize across identities but suffer from the same incomplete-texture limitation as other monocular methods. Speech-driven animation models [14] generate expressive face motion but output 2D video, discarding the 3D representation entirely. Our approach is complementary to motion synthesis: we focus on completing the texture of a given animated mesh sequence, restoring the free-viewpoint property that partial textures violate.
+**Animated face and 4D face synthesis.** NeRF-based methods [10,11] achieve photo-realistic novel-view synthesis but are identity-specific, requiring per-subject training and substantial compute at inference. Explicit mesh-based animated face systems [12,13] operate in real time and generalize across identities but suffer from the same incomplete-texture limitation as other monocular methods. Speech-driven animation models [14] generate expressive face motion but output 2D video, discarding the 3D representation entirely. Our approach is complementary: we focus on completing the surface texture of a given animated mesh sequence, restoring the free-viewpoint property that partial textures violate.
 
 ---
 
@@ -62,7 +61,7 @@ The "4D" descriptor reflects that our output is not a static textured model but 
 
 ### 3.1 Pipeline Overview
 
-Our system transforms a monocular talking-face video into a 4D avatar—a temporally indexed sequence of complete-texture 3D meshes—through four successive stages (Fig. 1):
+Our system transforms a monocular face video into a 4D avatar—a temporally indexed sequence of complete-texture 3D meshes—through four successive stages (Fig. 1):
 
 1. **Face reconstruction and texture completion.** A monocular 3D face reconstruction method processes each video frame to obtain per-frame mesh geometry and a partial UV texture baked from the visible image region. A UV-space inpainting model then completes the full texture atlas from the identity frame, synthesizing plausible content for all occluded surface regions.
 2. **Cross-topology texture transfer.** Our core contribution: a geometry-aware module that aligns the completed inpainting-mesh texture onto the target animation-mesh UV space. This involves (i) robust Procrustes alignment using 68 facial landmarks, (ii) a three-pass ICP refinement scheme, (iii) vectorized vertex-level color transfer with soft confidence weighting, (iv) zero-loop UV rasterization and barycentric baking at 1024×1024 resolution, and (v) seam dilation with Gaussian boundary blending.
@@ -112,15 +111,15 @@ Let **P** = {**p**_i}_{i=1}^{68} ⊂ R^3 be the source-mesh landmark set and **Q
 p̄ = (1/68)Σ p_i,    q̄ = (1/68)Σ q_i
 P_c = P − p̄,         Q_c = Q − q̄
 ```
-Pre-centering eliminates large spatial offsets between the two coordinate frames (BFM typically lives in millimeter-scale world coordinates, FLAME in normalized camera coordinates), which would otherwise cause numerical overflow in subsequent SVD computation.
+Pre-centering eliminates large spatial offsets between the two coordinate frames (the source mesh typically lives in millimeter-scale world coordinates while the target mesh may use normalized camera coordinates), which would otherwise cause numerical overflow in subsequent SVD computation.
 
-**Axis-convention detection.** BFM and FLAME may use different axis orientations (Y-up vs. Z-up, left-handedness, etc.). We test four candidate axis permutations — {XYZ, XZY, X(−Y)Z, XY(−Z)} — and select the one that minimizes the mean squared landmark distance to **Q**_c prior to running the full Procrustes:
+**Axis-convention detection.** The source and target meshes may use different axis orientations (Y-up vs. Z-up, left-handedness, etc.). We test four candidate axis permutations — {XYZ, XZY, X(−Y)Z, XY(−Z)} — and select the one that minimizes the mean squared landmark distance to **Q**_c prior to running the full Procrustes:
 ```
 axis* = argmin_{T ∈ {XYZ, XZY, X-YZ, XY-Z}}  (1/68) ||T(P_c) − Q_c||²_F
 ```
-This axis-detection step makes the pipeline robust to coordinate convention mismatches between UV-IDM and DECA output formats.
+This axis-detection step makes the pipeline robust to coordinate convention mismatches between the inpainting and reconstruction pipelines.
 
-**Bounding-box normalization.** To bring both point clouds to a comparable scale before Procrustes, we normalize the BFM landmarks by the ratio of bounding-box diagonals:
+**Bounding-box normalization.** To bring both point clouds to a comparable scale before Procrustes, we normalize the source landmarks by the ratio of bounding-box diagonals:
 ```
 s_pre = diag(Q_c) / diag(P_c),    P_c ← s_pre · P_c
 ```
@@ -231,13 +230,13 @@ All candidate pairs are tested simultaneously in a single NumPy pass. The baryce
 
 **Barycentric baking.** Once the `face_map` is populated, the final texture color at each covered texel (y, x) is computed as:
 ```
-T_FLAME[y, x] = w₀ · C[v₀] + w₁ · C[v₁] + w₂ · C[v₂]
+T_complete[y, x] = w₀ · C[v₀] + w₁ · C[v₁] + w₂ · C[v₂]
 ```
-where v₀, v₁, v₂ are the three FLAME vertex indices of the triangle at (y, x), and **C** is the per-vertex color array from §3.4.3. This single matrix gather-and-multiply completes in under 0.5 seconds for the full 1024×1024 atlas.
+where v₀, v₁, v₂ are the three target vertex indices of the triangle at (y, x), and **C** is the per-vertex color array from §3.3.3. This single matrix gather-and-multiply completes in under 0.5 seconds for the full 1024×1024 atlas.
 
 #### 3.3.5 Seam Dilation and Gaussian Boundary Blending
 
-Raw UV baking leaves two artifact categories: (i) *seam gaps*—single-pixel cracks along UV island boundaries where rasterization undersampling leaves isolated background pixels within the face region; and (ii) *background voids*—large unfilled areas in UV atlas regions corresponding to the back of the head, where FLAME UV faces may be sparsely distributed.
+Raw UV baking leaves two artifact categories: (i) *seam gaps*—single-pixel cracks along UV island boundaries where rasterization undersampling leaves isolated background pixels within the face region; and (ii) *background voids*—large unfilled areas in UV atlas regions corresponding to the back of the head, where target mesh UV faces may be sparsely distributed.
 
 We apply a three-pass post-processing stage using morphological dilation and Gaussian blending:
 
@@ -260,7 +259,7 @@ T_out[band] = α · T_out[band] + (1−α) · GaussianBlur(T_out, σ=1.5)[band]
 ```
 where `band` is the set of pixels with 0.05 < α < 0.95. This produces a smooth perceptual transition with an effective blending radius of approximately 5 pixels.
 
-The final output **T**_FLAME ∈ R^{1024×1024×3} has 100% texel coverage and no visible seam artifacts, as verified by inspection across all 74 subjects.
+The final output **T**_complete ∈ R^{1024×1024×3} has 100% texel coverage and no visible seam artifacts, as verified by inspection across all 74 subjects.
 
 ---
 
@@ -296,21 +295,23 @@ such that T is defined on the *entire* UV domain Ω_UV. The descriptor "4D" capt
 Ω_in(θ_in) = { φ⁻¹(p) : p ∈ Vis(t_in, θ_in) } ⊂ Ω_UV
 ```
 
-For DECA operating on a single C4-angle image (approximately 30° lateral offset from frontal), empirical measurement on our dataset yields:
+For monocular reconstruction from a single C4-angle image (approximately 30° lateral offset from frontal), empirical measurement on our dataset yields:
 
 ```
 |Ω_in| / |Ω_UV|  ≈  0.40 – 0.58
 ```
 
-meaning 42–60% of the UV atlas receives no valid observation. The DECA texture T_DECA is defined as:
+meaning 42–60% of the UV atlas receives no valid observation. The partial texture T_partial is defined as:
 
 ```
-         ⎧ I_in(π(φ(uv); θ_in))    if uv ∈ Ω_in(θ_in)
-T_DECA(uv) = ⎨
-         ⎩ undefined                otherwise
+           ⎧ I_in(π(φ(uv); θ_in))    if uv ∈ Ω_in(θ_in)
+T_partial(uv) = ⎨
+           ⎩ undefined                otherwise
 ```
 
 As a direct consequence, for any novel camera pose θ ≠ θ_in and any time t, the rendered image I(x, y, t; θ) contains undefined (black or distorted) regions wherever the projected surface point φ(uv) falls outside Ω_in. The 4D avatar property is *violated*: only a restricted subset of (t, θ) pairs yields valid renderings.
+
+
 
 Our completed texture **T**_complete, obtained through inpainting and cross-topology transfer, satisfies:
 
@@ -364,7 +365,7 @@ All 74 subjects (100%) improve on every metric without exception. The +10.07 dB 
 
 The complete-texture 4D avatar is qualitatively different from a partial-texture reconstruction because it supports free-viewpoint rendering at any animation time—a property that is simply absent from any single-viewpoint baked texture, regardless of its resolution or quality. We identify three domains where this property is a decisive enabling factor rather than an incremental improvement.
 
-The most direct application is *personalized avatar creation from a single photograph*. Because the completed texture covers the entire head surface, the resulting avatar looks realistic from any observation direction and can be freely rotated during playback without exposing blank regions. When the animation sequence is driven by recorded or synthesized speech, the result is a talking-face avatar whose appearance is angularly consistent—an individualized 4D representation that requires no multi-view capture hardware and no per-subject training. This addresses a broad class of use cases: e-learning, digital identity representation, virtual production, and social presence applications where a persistent personalized avatar is needed from a single enrollment photograph.
+The most direct application is *personalized avatar creation from a single photograph*. Because the completed texture covers the entire head surface, the resulting avatar looks realistic from any observation direction and can be freely rotated during playback without exposing blank regions. When the animation sequence is driven by recorded or synthesized speech, the result is a animated face avatar whose appearance is angularly consistent—an individualized 4D representation that requires no multi-view capture hardware and no per-subject training. This addresses a broad class of use cases: e-learning, digital identity representation, virtual production, and social presence applications where a persistent personalized avatar is needed from a single enrollment photograph.
 
 A second domain is *digital cultural and historical preservation*. Museum and archival collections contain photographs of historical figures, traditional performers, and community elders where only one image exists per subject. NeRF-based reconstruction [10,11] requires hundreds of photographs from multiple viewpoints; our pipeline requires exactly one. The resulting 4D avatar can deliver pre-written or synthesized speech and be explored spatially, providing a form of interactive presence that is impossible from a static photograph. The trade-off—that texture in occluded regions is hallucinated rather than observed—is a necessary approximation when the photographic record is limited to a single frame.
 
@@ -426,7 +427,7 @@ The pipeline also inherits the *geometry accuracy* of the upstream reconstructio
 
 ## 7. Conclusion
 
-We have presented a complete pipeline for free-viewpoint 4D talking face reconstruction via cross-topology UV texture transfer. We formalized the *4D texture avatar* property as a coverage condition on the UV domain, establishing that partial textures—a structural limitation of all single-viewpoint monocular reconstruction methods—violate this condition for the majority of the camera-pose sphere, while our complete texture restores it unconditionally. Our geometry-aware transfer module, combining robust Procrustes alignment, three-pass Point-to-Plane ICP, soft-confidence vertex color transfer, and zero-loop vectorized UV rebaking, bridges the topology gap between a UV-space inpainting model and an animation-ready face mesh without coverage gaps or seam artifacts. Quantitative evaluation on 74 subjects demonstrates consistent improvement over the monocular baseline across all subjects and all reported metrics. The resulting 4D avatar is simultaneously navigable in three spatial dimensions and across the full temporal animation sequence, enabling downstream applications—digital avatar creation, cultural preservation, longitudinal facial monitoring—that require free-viewpoint rendering from a single photograph input.
+We have presented a complete pipeline for free-viewpoint 4D animated face reconstruction via cross-topology UV texture transfer. We formalized the *4D texture avatar* property as a coverage condition on the UV domain, establishing that partial textures—a structural limitation of all single-viewpoint monocular reconstruction methods—violate this condition for the majority of the camera-pose sphere, while our complete texture restores it unconditionally. Our geometry-aware transfer module, combining robust Procrustes alignment, three-pass Point-to-Plane ICP, soft-confidence vertex color transfer, and zero-loop vectorized UV rebaking, bridges the topology gap between a UV-space inpainting model and an animation-ready face mesh without coverage gaps or seam artifacts. Quantitative evaluation on 74 subjects demonstrates consistent improvement over the monocular baseline across all subjects and all reported metrics. The resulting 4D avatar is simultaneously navigable in three spatial dimensions and across the full temporal animation sequence, enabling downstream applications—digital avatar creation, cultural preservation, longitudinal facial monitoring—that require free-viewpoint rendering from a single photograph input.
 
 ---
 
@@ -475,7 +476,6 @@ We have presented a complete pipeline for free-viewpoint 4D talking face reconst
 ---
 
 *[Figures to be inserted by author:*
-- *Fig. 1: Pipeline diagram — monocular input → DECA → UV-IDM → BFM→FLAME transfer → 4D assembly → web viewer]*
-- *Fig. 2: Per-subject PSNR scatter plot (DECA vs. Ours, 74 subjects)]*
-- *Fig. 3: Qualitative comparison — DECA texture / Ours texture / Ground truth, for 4–6 subjects, from novel viewpoints]*
-- *Fig. 4: Web viewer screenshot — split view of reference video and interactive 3D avatar during playback]*
+- *Fig. 1: Pipeline diagram — monocular input → face reconstruction → UV inpainting → cross-topology texture transfer → 4D avatar assembly]*
+- *Fig. 2: Per-subject PSNR scatter plot (Baseline vs. Ours, 74 subjects)]*
+- *Fig. 3: Qualitative comparison — partial texture (baseline) / complete texture (ours) / ground truth, for 4–6 subjects, from novel viewpoints]*
