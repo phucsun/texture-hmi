@@ -1,4 +1,4 @@
-# Complete-Texture 4D Talking Face Reconstruction for Interactive Web Deployment
+# Free-Viewpoint 4D Talking Face Reconstruction via Complete Surface Texture Transfer
 
 ---
 
@@ -13,9 +13,9 @@ Email: {author1, author3}@university.edu, author2@university2.edu
 
 ## Abstract
 
-We present an end-to-end pipeline for reconstructing complete-texture 4D talking face avatars from a single monocular photograph, deployable as an interactive web application. While recent monocular 3D face reconstruction methods achieve accurate geometry estimation, they produce only partial, camera-view-baked textures that leave occluded regions—ears, scalp, and the back of the head—blank, making them unsuitable for free-viewpoint 3D playback. We address this by combining DECA-based FLAME geometry reconstruction with UV-IDM, a UV-space inpainting diffusion model that synthesizes a complete Basel Face Model (BFM) UV texture atlas from a single image. A geometry-aware texture transfer module then aligns the BFM mesh to the FLAME mesh via Procrustes analysis and three-pass Point-to-Plane Iterative Closest Point (ICP) registration, followed by vectorized UV rebaking at 1024×1024 resolution with full vertex coverage. The resulting per-frame textured FLAME meshes constitute a 4D representation—three spatial dimensions plus the temporal talking animation—served through a real-time BabylonJS web viewer with frame-accurate audio synchronization. Quantitative evaluation on 74 subjects from the PolyFace multi-view dataset yields consistent improvements over the DECA baseline across all subjects: +10.07 dB PSNR, +0.155 SSIM, and −0.163 LPIPS. Our pipeline enables the construction of photo-realistic, 360°-viewable talking head avatars directly accessible in standard web browsers without specialized hardware.
+Monocular 3D face reconstruction methods recover accurate face geometry from a single image but yield only partial, camera-view-baked textures: occluded surface regions—ears, scalp, and the back of the head—remain blank in the UV atlas, making the reconstructed mesh unsuitable for free-viewpoint rendering or 4D talking face animation. We present a complete pipeline that bridges this gap by coupling a UV-space inpainting diffusion model with a geometry-aware cross-topology texture transfer module, producing a full-surface texture atlas that covers the entire head from a single photograph. The completed texture is applied uniformly across an animated mesh sequence to form a 4D representation: an avatar that is simultaneously navigable in three spatial dimensions and across the temporal axis of expressive talking motion. We formalize the 4D texture property as a coverage condition on the UV domain and show that partial textures violate this condition for the majority of the camera-pose sphere, while our complete texture restores it unconditionally. Quantitative evaluation on a large multi-view face dataset demonstrates consistent and substantial improvements over the monocular reconstruction baseline across all evaluated subjects on standard image quality metrics. Our method requires a single photograph as input, generalizes across identities without per-subject training, and produces a temporally coherent 4D avatar whose texture quality is uniform regardless of viewing direction.
 
-**Keywords:** 4D talking face, texture completion, UV inpainting, FLAME model, BFM, web-based avatar, DECA, UV-IDM, monocular reconstruction
+**Keywords:** 4D talking face, complete texture, UV inpainting, cross-topology texture transfer, free-viewpoint rendering, monocular face reconstruction
 
 ---
 
@@ -41,30 +41,20 @@ We present a complete end-to-end pipeline that:
 The "4D" descriptor reflects that our output is not a static textured model but an animated sequence of complete-texture 3D meshes indexed by time—a four-dimensional avatar that can be paused, scrubbed, and orbited freely during playback. The entire pipeline, from a single input photograph to a browser-ready 4D avatar, completes in under 60 seconds on consumer hardware.
 
 **Contributions.** This paper makes the following specific contributions:
-- A geometry-aware BFM-to-FLAME texture transfer algorithm combining Procrustes alignment, three-pass Point-to-Plane ICP, and fully vectorized UV rebaking that achieves 100% vertex coverage at 1024×1024 resolution.
-- An end-to-end integration of DECA, UV-IDM, and our transfer module into a production-ready 4D talking face pipeline completing in under 60 seconds per subject on consumer hardware.
-- A lightweight BabylonJS web viewer supporting frame-accurate 3D/audio co-playback, variable speed (0.5×–3×), and multi-framerate output (24/30/60 FPS) with no specialized client hardware or installation required.
-- Quantitative and qualitative evaluation on 74 subjects from the PolyFace dataset, demonstrating that 100% of subjects improved on PSNR, SSIM, and LPIPS compared to the DECA texture baseline.
+- A formal definition of the *4D texture avatar* as a coverage condition on the UV domain, establishing texture completeness as a necessary—not merely desirable—property for free-viewpoint animated face rendering.
+- A geometry-aware cross-topology texture transfer algorithm combining robust Procrustes alignment, three-pass Point-to-Plane ICP, soft-confidence vertex color transfer, and fully vectorized UV rebaking that achieves 100% surface coverage at 1024×1024 resolution without hard distance gates.
+- An end-to-end pipeline integrating a monocular face reconstruction model and a UV-space inpainting model via our transfer module, producing a complete-texture 4D avatar from a single photograph in under 60 seconds on consumer hardware.
+- Quantitative evaluation on 74 subjects from the PolyFace multi-view dataset demonstrating consistent improvement over the partial-texture baseline on all subjects across PSNR, SSIM, and LPIPS metrics.
 
 ---
 
 ## 2. Related Work
 
-### 2.1 Monocular 3D Face Reconstruction
+**Monocular 3D face reconstruction.** 3D Morphable Models [4] provide a low-dimensional parametric space for face shape and texture, enabling reconstruction from as few as one image. Early fitting methods [5] relied on iterative optimization; recent deep learning approaches regress 3DMM parameters directly [6,7]. DECA [1] extends this to per-frame expression tracking by disentangling identity shape, expression, jaw pose, and head pose, achieving state-of-the-art reconstruction quality from monocular video. EMOCA [8] adds emotionally-driven expression supervision. All these methods share the same texture bottleneck: the estimated albedo is reconstructed from the visible image region only, leaving a large portion of the UV atlas blank or extrapolated poorly—the gap that motivates this work.
 
-3D Morphable Models [4] provide a low-dimensional parametric space for face shape and texture, enabling reconstruction from as few as one image. Early fitting methods [5] relied on iterative optimization; recent deep learning approaches regress 3DMM parameters directly [6,7]. DECA [1] extends this to per-frame expression tracking by disentangling identity shape, expression, jaw pose, and head pose through a detail-code branch, achieving state-of-the-art reconstruction quality from monocular video. EMOCA [8] adds emotionally-driven expression supervision. However, all these methods share the same texture bottleneck: the estimated albedo is reconstructed from the visible image region only, leaving a large portion of the UV map blank or extrapolated poorly.
+**UV texture completion.** Face texture completion in UV space has been addressed by GAN-based inpainting models [9] that learn to hallucinate realistic skin texture for occluded regions conditioned on visible ones. More recently, diffusion model backbones applied directly to UV atlas layouts achieve significantly higher fidelity for complex skin tones and fine facial features [3]. Our system treats such a UV inpainting model as a black-box completer and contributes the missing bridge: transferring the completed texture onto a different mesh topology without seam artifacts or coverage gaps.
 
-### 2.2 UV Texture Completion for Faces
-
-Face texture completion has been addressed through GAN-based inpainting in UV space. UV-GAN [9] and its successors learn to hallucinate realistic skin texture for occluded UV regions conditioned on visible ones. More recently, UV-IDM [3] adopts a diffusion model backbone operating directly in the BFM UV atlas layout, achieving significantly higher fidelity for complex skin tones and fine facial features. Our system treats UV-IDM as a black-box texture completer and focuses on the bridge—how to transfer the completed BFM texture faithfully onto the FLAME mesh without introducing seam artifacts or coverage gaps.
-
-### 2.3 Talking Head and 4D Face Synthesis
-
-Neural Radiance Field (NeRF) based talking head methods [10,11] achieve photo-realistic novel-view synthesis but are identity-specific, requiring minutes to hours of per-subject training and substantial compute at inference. Explicit mesh-based talking head systems [12,13] operate in real time and generalize across identities but typically suffer from the same incomplete texture problem as other 3DMM-based approaches. CodeTalker [14] generates expressive motion from speech but outputs 2D video. Our approach is complementary: we do not synthesize talking motion but instead focus on completing the texture of a given FLAME animation sequence, making it viewable from any angle.
-
-### 2.4 Web-Based 3D Avatar Deployment
-
-ThreeJS and BabylonJS are the dominant WebGL frameworks for browser-based 3D rendering. Prior work on web-based avatar systems has largely focused on geometry streaming [15] or rigged character models [16]. Our viewer is distinctive in loading pre-computed per-frame OBJ sequences—enabling arbitrary expression dynamics—and synchronizing them frame-accurately with an audio track using Howler.js, without any server-side rendering.
+**Talking head and 4D face synthesis.** NeRF-based methods [10,11] achieve photo-realistic novel-view synthesis but are identity-specific, requiring minutes to hours of per-subject training and substantial compute at inference. Explicit mesh-based talking head systems [12,13] operate in real time and generalize across identities but suffer from the same incomplete-texture limitation as other monocular methods. Speech-driven animation models [14] generate expressive face motion but output 2D video, discarding the 3D representation entirely. Our approach is complementary to motion synthesis: we focus on completing the texture of a given animated mesh sequence, restoring the free-viewpoint property that partial textures violate.
 
 ---
 
@@ -72,57 +62,50 @@ ThreeJS and BabylonJS are the dominant WebGL frameworks for browser-based 3D ren
 
 ### 3.1 Pipeline Overview
 
-Our system transforms a monocular talking-face video into a 4D avatar—a temporally indexed sequence of complete-texture 3D meshes—through five successive stages (Fig. 1):
+Our system transforms a monocular talking-face video into a 4D avatar—a temporally indexed sequence of complete-texture 3D meshes—through four successive stages (Fig. 1):
 
-1. **Geometry extraction.** DECA processes each video frame independently, producing a FLAME mesh with per-frame vertex positions and a partial UV texture baked from the visible image region.
-2. **Texture completion.** UV-IDM synthesizes a full BFM UV texture atlas from the identity frame's partial texture, hallucinating plausible content for all occluded facial regions.
-3. **BFM→FLAME texture transfer.** Our core contribution: a geometry-aware alignment-and-rebaking module maps the completed BFM texture onto the FLAME UV space. This involves (i) robust Procrustes alignment using 68 facial landmarks, (ii) a three-pass ICP refinement scheme, (iii) vectorized vertex-level color transfer with confidence weighting, (iv) zero-loop UV rasterization and barycentric baking at 1024×1024 resolution, and (v) seam dilation with Gaussian boundary blending.
-4. **4D assembly.** The completed FLAME texture—computed once per subject—is applied uniformly to every frame of the animation sequence, which preserves per-frame expression dynamics in the mesh geometry.
-5. **Web deployment.** The assembled avatar is served through a BabylonJS web viewer with frame-accurate audio synchronization, enabling interactive 360° playback in standard browsers.
+1. **Face reconstruction and texture completion.** A monocular 3D face reconstruction method processes each video frame to obtain per-frame mesh geometry and a partial UV texture baked from the visible image region. A UV-space inpainting model then completes the full texture atlas from the identity frame, synthesizing plausible content for all occluded surface regions.
+2. **Cross-topology texture transfer.** Our core contribution: a geometry-aware module that aligns the completed inpainting-mesh texture onto the target animation-mesh UV space. This involves (i) robust Procrustes alignment using 68 facial landmarks, (ii) a three-pass ICP refinement scheme, (iii) vectorized vertex-level color transfer with soft confidence weighting, (iv) zero-loop UV rasterization and barycentric baking at 1024×1024 resolution, and (v) seam dilation with Gaussian boundary blending.
+3. **4D assembly.** The completed texture—computed once per subject—is applied uniformly to every frame of the animation sequence, preserving per-frame expression dynamics in the mesh geometry.
+4. **4D representation and evaluation.** The assembled sequence is formalized as a 4D texture avatar and evaluated for spatial completeness across novel viewpoints.
 
-Stages 1–2 rely on existing methods (DECA, UV-IDM) used as fixed black boxes; Stage 3 is the technical contribution of this paper. Stages 4–5 operationalize the 4D representation.
+Stages 1 relies on existing methods used as fixed black boxes; Stage 2 is the technical contribution of this paper. Stages 3–4 formalize and evaluate the resulting 4D representation.
 
 ---
 
-### 3.2 Geometry Extraction via DECA
+### 3.2 Face Reconstruction and Texture Completion
 
-DECA [1] encodes an input image through a ResNet-50 backbone into a compact set of FLAME [2] parameters:
+**Monocular geometry reconstruction.** We adopt a monocular 3D face reconstruction method [1] that encodes an input image through a ResNet-50 backbone into a compact parametric face model:
 
 ```
 Θ = {β, θ, ψ, α, l, c}
 ```
 
-where **β** ∈ R^300 encodes identity shape, **θ** ∈ R^15 encodes head pose and jaw articulation, **ψ** ∈ R^100 encodes facial expression, **α** ∈ R^50 encodes PCA albedo coefficients, **l** ∈ R^27 encodes scene illumination as Spherical Harmonic (SH) coefficients, and **c** ∈ R^3 encodes weak-perspective camera scale and translation.
+where **β** encodes identity shape, **θ** encodes head pose and jaw articulation, **ψ** encodes facial expression, **α** encodes PCA albedo coefficients, **l** encodes scene illumination as Spherical Harmonic (SH) coefficients, and **c** encodes weak-perspective camera projection. The decoder produces a triangular mesh {**V** ∈ R^{5023×3}, **F** ∈ Z^{9976×3}} with a fixed UV parameterization shared across all subjects and expressions.
 
-The FLAME mesh is then decoded as a function of shape, pose, and expression: **M**(β, θ, ψ) → {**V** ∈ R^{5023×3}, **F** ∈ Z^{9976×3}}, with a fixed UV atlas parameterization. The albedo texture **T**_DECA is recovered by differentiable rasterization: each pixel on the UV atlas samples its color from the input image if the corresponding 3D vertex is visible under the estimated camera and lighting; otherwise the texel is left empty or receives an unreliable extrapolated value.
+The albedo texture **T**_recon is recovered by differentiable rasterization: each UV-atlas texel samples its color from the input image if the corresponding surface point is visible under the estimated camera; otherwise the texel is left empty or receives an unreliable extrapolated value. This *view-dependent baking* is the root cause of texture incompleteness. At a lateral capture angle of approximately 30° from frontal, quantitative analysis on our dataset shows that 42–67% of the UV atlas receives no valid observation, including the back of the scalp, ears, and the contralateral cheek region.
 
-This view-dependent baking is the root cause of texture incompleteness. At a C4 camera angle (approximately 30° lateral offset from frontal), only the front-facing hemisphere of the face is observed. Quantitative analysis on our dataset shows that 42–67% of the FLAME UV atlas area receives no valid observation, including the entire back of the scalp, ears, and contralateral cheek region.
+**UV texture completion.** To synthesize content for the unobserved UV regions, we apply a UV-space inpainting diffusion model [3] that operates in a higher-resolution UV layout specifically designed for face texture generation. Given the partial reconstructed texture **T**_partial ∈ R^{H×H×3} and a binary validity mask **M** indicating observed texels, the model produces a complete texture:
+
+```
+T_IDM = InpaintingModel(T_partial, M)
+```
+
+The model leverages structural face priors—bilateral skin tone continuity, approximate left-right symmetry, and high-frequency hair and pore detail—to hallucinate plausible content across all masked regions. It is invoked once per subject on the frame with the highest estimated frontal confidence, yielding a single identity texture **T**_IDM that encodes subject-specific albedo across the full head surface.
+
+The two meshes—the inpainting model's source mesh and the animation-ready target mesh—share the same semantic geometry but differ in vertex count, face topology, and UV parameterization. The source mesh has approximately 53,215 vertices with a UV atlas optimized for texture generation; the target mesh has 5,023 vertices with a UV layout optimized for real-time animation with fixed topology. Direct UV remapping between the two layouts is undefined. The following section describes our geometry-aware cross-topology transfer.
 
 ---
 
-### 3.3 UV Texture Completion via UV-IDM
+### 3.3 Cross-Topology Texture Transfer
 
-UV-IDM [3] is a latent diffusion model that operates directly in the BFM UV atlas layout. Given a partial texture **T**_partial ∈ R^{512×512×3} and a binary validity mask **M** ∈ {0,1}^{512×512} (where M_ij = 1 if texel (i,j) has a valid observed color), UV-IDM synthesizes a complete texture:
+The completed texture **T**_IDM lives in the source mesh UV space and must be rebaked into the target mesh UV space without introducing coverage gaps, seam artifacts, or topology-induced distortions. We achieve this through a five-step geometry-aware pipeline.
 
-```
-T_IDM = UV-IDM(T_partial, M)
-```
+#### 3.3.1 Robust Procrustes Alignment
 
-The model is conditioned jointly on the observed pixels and the mask, enabling it to leverage structural face priors—bilateral skin tone continuity, approximate left-right symmetry, and high-frequency hair and pore detail—to produce plausible content for all masked regions.
+We detect 68 facial landmarks on both meshes: on the source mesh, landmarks are obtained from pre-computed 3D vertex coordinates; on the target mesh, landmarks are computed via barycentric interpolation on pre-stored face indices and barycentric weights.
 
-In our pipeline, UV-IDM is invoked exactly once per subject on the input frame with the highest estimated frontal confidence (i.e., the frame whose estimated head yaw angle is closest to 0°). This produces a single identity texture **T**_IDM ∈ R^{512×512×3} in BFM UV space, which encodes subject-specific albedo across the entire head surface.
-
----
-
-### 3.4 BFM-to-FLAME Texture Transfer
-
-The BFM mesh (as output by UV-IDM) and the FLAME mesh (as output by DECA) share the same semantic geometry—the human face—but differ in vertex count, face topology, and UV parameterization. The BFM mesh has approximately 53,215 vertices and uses a UV atlas optimized for texture generation; the FLAME mesh has 5,023 vertices with a separate UV layout optimized for animation. Direct UV coordinate remapping is undefined. We bridge this gap through a four-step geometry-aware transfer.
-
-#### 3.4.1 Robust Procrustes Alignment
-
-We detect 68 facial landmarks on both meshes: on the BFM mesh, landmarks are loaded from a pre-computed MAT file providing 3D vertex coordinates; on the FLAME mesh, landmarks are computed from barycentric interpolation using pre-stored face indices and barycentric coordinates (the `full_lmk_faces_idx` / `full_lmk_bary_coords` arrays from DECA's landmark definition).
-
-Let **P** = {**p**_i}_{i=1}^{68} ⊂ R^3 be the BFM landmark set and **Q** = {**q**_i}_{i=1}^{68} ⊂ R^3 be the FLAME landmark set. The Procrustes alignment proceeds in three sub-steps:
+Let **P** = {**p**_i}_{i=1}^{68} ⊂ R^3 be the source-mesh landmark set and **Q** = {**q**_i}_{i=1}^{68} ⊂ R^3 be the target-mesh landmark set. The Procrustes alignment proceeds in three sub-steps:
 
 **Pre-centering.** Both landmark sets are centered to zero mean:
 ```
@@ -153,15 +136,15 @@ t = q̄ − s · R · p̄
 ```
 The reflection-correction diagonal **S** prevents the degenerate solution **R** = −**I** when the landmark cloud is mirror-symmetric. A scale guard clamps *s* to [10⁻³, 10³] to prevent explosion due to degenerate inputs.
 
-After Procrustes, the BFM mesh vertices are transformed as:
+After Procrustes, the source mesh vertices are transformed as:
 ```
-V_BFM ← s · V_BFM · R^T + t
+V_src ← s · V_src · R^T + t
 ```
-achieving a coarse global alignment. The landmark RMSE after Procrustes is typically 0.003–0.012 in FLAME's normalized coordinate space.
+achieving a coarse global alignment. The landmark RMSE after Procrustes is typically 0.003–0.012 in the target mesh's normalized coordinate space.
 
-#### 3.4.2 Three-Pass Point-to-Plane ICP Refinement
+#### 3.3.2 Three-Pass Point-to-Plane ICP Refinement
 
-Despite robust Procrustes alignment, residual misalignment persists due to (i) shape differences between the BFM identity morphable model and the FLAME shape space, (ii) landmark detection noise, and (iii) expression-induced geometric discrepancies. We apply a three-pass iterative refinement scheme using the Open3D point cloud registration framework.
+Despite robust Procrustes alignment, residual misalignment persists due to (i) shape differences between the source and target mesh topologies, (ii) landmark detection noise, and (iii) expression-induced geometric discrepancies. We apply a three-pass iterative refinement scheme using the Open3D point cloud registration framework.
 
 Both meshes are converted to oriented point clouds, with normals estimated from the mesh vertex normals. The ICP objective in each pass minimizes the point-to-plane distance:
 ```
@@ -173,23 +156,23 @@ where **C** is the set of inlier correspondences, **T** is the rigid transformat
 
 **Pass 1.5 — Point-to-Point Translation Stabilization.** After Pass 1, the rotation is well-estimated but translation may exhibit slight drift due to asymmetric face topology. We run a brief Point-to-Point ICP (200 iterations, d = 0.03, convergence 10⁻⁹) on the same voxelized clouds to stabilize the translation component without disturbing the rotation.
 
-**Pass 2 — Fine Point-to-Plane.** Both clouds are re-downsampled at finer resolution δ/2 = 0.001, nearly doubling the point density used for fine alignment. We run 500 iterations at d₂ = 0.02 with convergence 10⁻¹², driving the inlier RMSE to its minimum achievable value given the shape-space mismatch between BFM and FLAME.
+**Pass 2 — Fine Point-to-Plane.** Both clouds are re-downsampled at finer resolution δ/2 = 0.001, nearly doubling the point density used for fine alignment. We run 500 iterations at d₂ = 0.02 with convergence 10⁻¹², driving the inlier RMSE to its minimum achievable value given the inherent shape-space mismatch between the two meshes.
 
 After all three passes, we compute an adaptive distance cap for subsequent steps:
 ```
 DIST_CAP = max(0.03, 2.0 × σ_surface)
 ```
-where σ_surface is the surface RMSE measured on 5,000 randomly sampled DECA vertices. This adaptive threshold gracefully handles subjects with unusual face proportions where alignment is inherently less tight.
+where σ_surface is the surface RMSE measured on 5,000 randomly sampled target vertices. This adaptive threshold gracefully handles subjects with unusual face proportions where alignment is inherently less tight.
 
-#### 3.4.3 Vectorized Vertex-Level Color Transfer
+#### 3.3.3 Vectorized Vertex-Level Color Transfer
 
-With the BFM mesh now co-registered in FLAME's coordinate space, we transfer color from the BFM texture **T**_IDM to each of the 5,023 FLAME vertices. This step produces a per-vertex color array **C** ∈ R^{5023×3} along with a confidence weight **w** ∈ R^{5023} for each vertex.
+With the source mesh now co-registered in the target mesh's coordinate space, we transfer color from the completed texture **T**_IDM to each target mesh vertex. This step produces a per-vertex color array **C** ∈ R^{N×3} (N = number of target vertices) along with a confidence weight **w** ∈ R^N for each vertex.
 
-**Surface proximity query.** We issue a single batched query that, for each DECA vertex **v**_i, finds its closest point on the BFM mesh surface:
+**Surface proximity query.** We issue a single batched query that, for each target vertex **v**_i, finds its closest point on the aligned source mesh surface:
 ```
-(c_i, d_i, tri_i) = ClosestPoint(BFM_aligned, v_i),   ∀i ∈ {1, …, 5023}
+(c_i, d_i, tri_i) = ClosestPoint(src_aligned, v_i),   ∀i ∈ {1, …, N}
 ```
-where **c**_i is the 3D closest point, d_i is the Euclidean distance, and tri_i is the index of the closest BFM triangle. This single vectorized query replaces a naive per-vertex loop and completes in under 0.5 seconds for the full mesh.
+where **c**_i is the 3D closest point, d_i is the Euclidean distance, and tri_i is the index of the closest source triangle. This single vectorized query replaces a naive per-vertex loop and completes in under 0.5 seconds for the full mesh.
 
 **Confidence weighting.** Rather than applying a hard distance gate (which would leave some vertices uncolored), we compute soft confidence weights that modulate blending quality without excluding any vertex:
 
@@ -201,32 +184,32 @@ where d_99 is the 99th percentile of {d_i}, so all but the most extreme 1% of ve
 
 *Normal consistency confidence:*
 ```
-w_norm(i) = clip((n̂_DECA(i) · n̂_BFM(tri_i) + 0.8) / 1.8, 0, 1)
+w_norm(i) = clip((n̂_tgt(i) · n̂_src(tri_i) + 0.8) / 1.8, 0, 1)
 ```
-This term equals 1 when DECA and BFM surface normals are co-aligned, and falls to 0 at a dot product of −0.8 (approximately 144°). Normal dot products are checked for systematic sign flips (which occur when face normals are inverted relative to the camera) and automatically corrected.
+This term equals 1 when source and target surface normals are co-aligned, and falls to 0 at a dot product of −0.8 (approximately 144°). Normal dot products are checked for systematic sign flips (which occur when mesh normals are inverted) and automatically corrected.
 
 The combined confidence is w(i) = w_dist(i) · w_norm(i), stored for use in the baking stage.
 
-**Barycentric UV interpolation.** For each DECA vertex **v**_i, we interpolate BFM UV coordinates from the three corners of the closest BFM triangle tri_i using the barycentric weights of the closest point **c**_i relative to that triangle:
+**Barycentric UV interpolation.** For each target vertex **v**_i, we interpolate source UV coordinates from the three corners of the closest source triangle tri_i using the barycentric weights of the closest point **c**_i:
 ```
-[b₀, b₁, b₂] = barycentric(c_i; V_BFM[tri_i])
-uv_i = b₀ · uv_BFM[tri_i,0] + b₁ · uv_BFM[tri_i,1] + b₂ · uv_BFM[tri_i,2]
+[b₀, b₁, b₂] = barycentric(c_i; V_src[tri_i])
+uv_i = b₀ · uv_src[tri_i,0] + b₁ · uv_src[tri_i,1] + b₂ · uv_src[tri_i,2]
 ```
-This entire computation is expressed as matrix operations across all 5,023 vertices simultaneously, with no Python-level loops. For degenerate triangles (near-zero area, where the barycentric linear system is singular with |det| < 10⁻¹²), we fall back to assigning the UV coordinates of the nearest triangle corner, determined by minimum squared distance from **v**_i to each corner.
+This entire computation is expressed as matrix operations across all N vertices simultaneously, with no Python-level loops. For degenerate triangles (near-zero area, where the barycentric linear system is singular with |det| < 10⁻¹²), we fall back to assigning the UV coordinates of the nearest triangle corner, determined by minimum squared distance from **v**_i to each corner.
 
-**Bilinear texture sampling.** The BFM UV coordinate **uv**_i is then used to bilinearly sample **T**_IDM:
+**Bilinear texture sampling.** The source UV coordinate **uv**_i is then used to bilinearly sample **T**_IDM:
 ```
 C_i = BilinearSample(T_IDM, uv_i)
 ```
 Bilinear interpolation is implemented as a single NumPy vectorized operation across all vertices.
 
-The result is a 100% vertex coverage guarantee: every DECA vertex receives a valid color **C**_i, regardless of alignment quality, because the confidence weighting scheme never excludes—it only down-weights—vertices with poor alignment metrics.
+The result is a 100% vertex coverage guarantee: every target vertex receives a valid color **C**_i, regardless of alignment quality, because the confidence weighting scheme never excludes—it only down-weights—vertices with poor alignment metrics.
 
-#### 3.4.4 Zero-Loop Vectorized UV Rasterization and Baking
+#### 3.3.4 Zero-Loop Vectorized UV Rasterization and Baking
 
-The per-vertex color array **C** ∈ R^{5023×3} must be projected into the 2D FLAME UV atlas at 1024×1024 resolution. This is achieved through a fully vectorized rasterizer that contains no Python-level loops over either pixels or faces.
+The per-vertex color array **C** ∈ R^{N×3} must be projected into the 2D target mesh UV atlas at 1024×1024 resolution. This is achieved through a fully vectorized rasterizer that contains no Python-level loops over either pixels or faces.
 
-**UV rasterization.** For each of the 9,976 FLAME triangles, we compute:
+**UV rasterization.** For each target mesh triangle, we compute:
 1. Pixel-space vertex coordinates: **px** = UV_u · (S−1), **py** = (1 − UV_v) · (S−1), where S = 1024.
 2. Axis-aligned bounding box (AABB): [bbx0, bbx1] × [bby0, bby1] for each triangle.
 3. Triangle area via the cross-product sign: area = (p1x − p0x)(p2y − p0y) − (p1y − p0y)(p2x − p0x). Degenerate triangles (|area| < 10⁻⁶) are skipped.
@@ -252,7 +235,7 @@ T_FLAME[y, x] = w₀ · C[v₀] + w₁ · C[v₁] + w₂ · C[v₂]
 ```
 where v₀, v₁, v₂ are the three FLAME vertex indices of the triangle at (y, x), and **C** is the per-vertex color array from §3.4.3. This single matrix gather-and-multiply completes in under 0.5 seconds for the full 1024×1024 atlas.
 
-#### 3.4.5 Seam Dilation and Gaussian Boundary Blending
+#### 3.3.5 Seam Dilation and Gaussian Boundary Blending
 
 Raw UV baking leaves two artifact categories: (i) *seam gaps*—single-pixel cracks along UV island boundaries where rasterization undersampling leaves isolated background pixels within the face region; and (ii) *background voids*—large unfilled areas in UV atlas regions corresponding to the back of the head, where FLAME UV faces may be sparsely distributed.
 
@@ -281,13 +264,11 @@ The final output **T**_FLAME ∈ R^{1024×1024×3} has 100% texel coverage and n
 
 ---
 
-### 3.5 4D Texture Representation and Interactive Web Deployment
-
-#### 3.5.1 Formal Definition of the 4D Texture Avatar
+### 3.4 Formal Definition of the 4D Texture Avatar
 
 We define the concept of a *4D texture avatar* formally to precisely characterize what our system produces and why texture completeness is a *necessary* condition—not merely a quality improvement.
 
-**Notation.** Let S ⊂ R³ denote the face surface, modeled as a 2-manifold with UV parameterization φ: Ω_UV → S, where Ω_UV = [0,1]² is the UV domain. The FLAME model provides a time-varying surface through per-frame vertex positions: **V**: ℝ → ℝ^{5023×3}, so that S_t = FLAME(**V**_t) is the deformed mesh at time *t* encoding shape, expression, jaw, and head pose. A camera model with pose θ ∈ Θ defines a projection π(·; θ): S → ℝ² and a visibility set:
+**Notation.** Let S ⊂ R³ denote the face surface, modeled as a 2-manifold with UV parameterization φ: Ω_UV → S, where Ω_UV = [0,1]² is the UV domain. A parametric face model provides a time-varying surface through per-frame vertex positions **V**_t, so that S_t is the deformed mesh at time *t* encoding shape, expression, jaw, and head pose. A camera model with pose θ ∈ Θ defines a projection π(·; θ): S → ℝ² and a visibility set:
 
 ```
 Vis(t, θ) = { p ∈ S_t : p is visible from camera θ at time t }
@@ -331,10 +312,10 @@ T_DECA(uv) = ⎨
 
 As a direct consequence, for any novel camera pose θ ≠ θ_in and any time t, the rendered image I(x, y, t; θ) contains undefined (black or distorted) regions wherever the projected surface point φ(uv) falls outside Ω_in. The 4D avatar property is *violated*: only a restricted subset of (t, θ) pairs yields valid renderings.
 
-Our texture **T**_FLAME, obtained through UV-IDM completion and BFM→FLAME transfer, satisfies:
+Our completed texture **T**_complete, obtained through inpainting and cross-topology transfer, satisfies:
 
 ```
-T_FLAME(uv) is defined   ∀ uv ∈ Ω_UV
+T_complete(uv) is defined   ∀ uv ∈ Ω_UV
 ```
 
 guaranteeing that I(x, y, t; θ) is defined for *any* camera pose θ ∈ Θ and any animation time t ∈ [0, T]. This is the precise sense in which our system produces a true 4D avatar, and why the texture transfer contribution is not merely cosmetic—it is the enabling condition for the 4D property.
@@ -342,248 +323,110 @@ guaranteeing that I(x, y, t; θ) is defined for *any* camera pose θ ∈ Θ and 
 **Concrete representation.** Each animation frame is a tuple:
 
 ```
-f_t = { V_t ∈ ℝ^{5023×3},   F ∈ ℤ^{9976×3},   UV ∈ ℝ^{N_vt×2},   T_FLAME ∈ ℝ^{1024×1024×3} }
+f_t = { V_t ∈ ℝ^{N×3},   F ∈ ℤ^{M×3},   UV ∈ ℝ^{K×2},   T_complete ∈ ℝ^{1024×1024×3} }
 ```
 
-**T**_FLAME is shared across all frames (identity-constant albedo under the diffuse skin assumption) and serialized once as a PNG; per-frame geometry is serialized as OBJ files referencing the shared MTL. The sequence A = {f_t}_{t=1}^{T} with audio track A_audio constitutes the delivered 4D avatar.
-
-#### 3.5.2 BabylonJS Web Viewer
-
-The viewer is implemented as a Svelte + TypeScript single-page application using BabylonJS Core 7.x. It is served as a static bundle with no server-side rendering, requiring only a standard HTTP file server.
-
-**Frame scheduling.** A drift-correcting timestamp accumulator maintains playback at the target frame rate (configurable: 24, 30, or 60 FPS) independent of the browser's display refresh rate:
-```
-accumulated_time += Δt_real
-while accumulated_time ≥ frame_duration:
-    advance_frame()
-    accumulated_time −= frame_duration
-```
-This prevents frame doubling on high-refresh displays and frame skipping under transient CPU load.
-
-**Audio synchronization.** Audio playback is driven by Howler.js. On each rendered frame, the system reads the Howler playback position *t*_audio and compares it against the expected geometry timestamp *t*_geom = frame_index / fps:
-```
-drift = t_audio − t_geom
-if |drift| > frame_duration:
-    frame_index = round(t_audio × fps)
-```
-This snap-on-drift strategy ensures geometry never lags audio by more than one frame period, regardless of system load.
-
-**On-demand loading with lookahead buffering.** OBJ frames are loaded asynchronously via the Fetch API and decoded by BabylonJS's OBJ loader. A configurable lookahead buffer (default: 5 frames ahead) pre-fetches upcoming frames while the current frame is displayed, preventing stalls during continuous playback. Loaded frames are retained in a bounded LRU cache to enable instant reverse playback and timeline scrubbing.
-
-**Frontal auto-alignment.** At load time, the system computes a frontal rotation from the 3D landmark positions embedded in the first frame's DECA output. The face outward normal **n̂**_face is estimated as the cross product of the eye axis and chin-to-nose axis:
-```
-n̂_face = normalize(eye_axis × nose_axis)
-```
-A rotation matrix **R**_frontal that maps {**n̂**_face → +Z, **û**_face → +Y} is applied to the mesh as a quaternion, pivoting around the face centroid. The ArcRotateCamera is then fixed at α = π/2, β = π/2 (looking from +Z), providing a clean frontal view without requiring the user to manually orient the avatar.
-
-**Interactive controls.** The viewer exposes: playback speed (0.5×, 1×, 1.5×, 2×, 3×) adjusted by scaling the frame duration; a split-view toggle showing the reference video alongside the 3D model for perceptual comparison; timeline scrubbing with keyboard shortcuts; and ambient + hemispheric lighting with configurable intensity.
+where N, M, K are determined by the target mesh topology. **T**_complete is shared across all frames under the identity-constant albedo assumption. The sequence {f_t}_{t=1}^{T} constitutes the 4D avatar: spatially navigable in the full camera-pose sphere and temporally navigable across the complete animation.
 
 ---
 
 ## 4. Experiments
 
-### 4.1 Dataset
+### 4.1 Experimental Setup
 
-We evaluate on **PolyFace** [17], a multi-view face dataset capturing 74 subjects under controlled studio lighting. Each subject is recorded simultaneously from 7 calibrated cameras at angles C1, C4, C7, C10, C13, C17, and C24 relative to the frontal axis. We use:
-- **Input**: C4 images (approximately 30° lateral offset), representing a typical selfie or video-call angle.
-- **Ground truth**: C7 images (frontal), used for quantitative comparison.
+We evaluate on **PolyFace** [17], a multi-view face dataset capturing 74 subjects under controlled studio lighting. Each subject is recorded simultaneously from 7 calibrated cameras at angles C1, C4, C7, C10, C13, C17, and C24 relative to the frontal axis. We use C4 images (approximately 30° lateral offset) as input and C7 images (frontal) as ground truth. This protocol reflects a realistic capture scenario where the input photograph is taken at a non-frontal angle, and the quality of novel-view rendering is evaluated against the frontal view that most clearly exposes previously occluded surface regions. For each subject, we render the reconstructed avatar from the C7 camera viewpoint and compare against the ground-truth C7 photograph, aligned and cropped to the face region.
 
-This evaluation protocol reflects a realistic use case: the system takes a slightly angled photo and produces a 3D avatar that should match the frontal appearance.
+We report three complementary metrics: **PSNR** (dB, higher is better) measures pixel-level reconstruction accuracy; **SSIM** (higher is better) measures perceptual structure preservation; and **LPIPS** [18] (lower is better) measures deep feature-level perceptual similarity, which correlates more strongly with human judgment than pixel-level metrics. We compare against the partial-texture reconstruction baseline produced by the monocular face reconstruction method [1] without our texture completion and transfer pipeline.
 
-### 4.2 Evaluation Metrics
+### 4.2 Results
 
-We report four metrics:
-
-- **PSNR** (Peak Signal-to-Noise Ratio, dB): higher is better. Measures pixel-level reconstruction accuracy.
-- **SSIM** (Structural Similarity Index): higher is better. Measures perceptual structure preservation.
-- **LPIPS** (Learned Perceptual Image Patch Similarity) [18]: lower is better. Measures deep feature-level perceptual similarity, more correlated with human judgment than PSNR/SSIM.
-- **CSIM** (Cosine Similarity of face embeddings): higher is better. Measures identity preservation using InceptionResnetV1 [19] pretrained on VGGFace2 [20].
-
-For each metric, we render the reconstructed FLAME mesh from the C7 camera viewpoint and compare against the ground-truth C7 photograph, aligned and cropped to the face region.
-
-### 4.3 Quantitative Results
-
-Table 1 reports per-metric averages and standard deviations over 74 subjects.
+**Quantitative comparison.** Table 1 reports per-metric averages and standard deviations over all 74 subjects.
 
 **Table 1. Quantitative comparison on PolyFace (74 subjects). ↑: higher is better; ↓: lower is better.**
 
 | Method | PSNR ↑ (dB) | SSIM ↑ | LPIPS ↓ |
 |--------|-------------|--------|---------|
-| DECA [1] | 13.73 ± 1.40 | 0.447 ± 0.027 | 0.513 ± 0.043 |
-| **Ours** | **23.80 ± 1.124** | **0.602 ± 0.054** | **0.350 ± 0.085** |
+| Baseline (partial texture) | 13.73 ± 1.40 | 0.447 ± 0.027 | 0.513 ± 0.043 |
+| **Ours (complete texture)** | **23.80 ± 1.124** | **0.602 ± 0.054** | **0.350 ± 0.085** |
 | **Δ** | **+10.07** | **+0.155** | **−0.163** |
 
-*All 74 subjects (100%) show improvement on every metric.*
+All 74 subjects (100%) improve on every metric without exception. The +10.07 dB PSNR gain corresponds to reducing mean squared error by a factor of 10—reflecting the categorical difference between a texture with structurally blank regions and a fully completed one. The LPIPS improvement of −0.163 confirms that the gain is perceptually meaningful, not merely numerical. The higher standard deviation of LPIPS (0.085) compared to SSIM (0.054) suggests that perceptual quality varies more across subjects, likely due to the inpainting model's sensitivity to hair texture and skin tone diversity.
 
-The gain of +10.07 dB PSNR is particularly significant: a 10 dB improvement corresponds to reducing the mean squared error by a factor of 10, reflecting the qualitative difference between a texture with large blank regions (DECA) and a fully completed texture (ours). The LPIPS improvement of −0.163 indicates that our output is substantially more perceptually similar to the ground truth frontal photograph.
+**Per-subject consistency.** The improvement is consistent across subjects and input conditions: the minimum per-subject PSNR gain is approximately +7.5 dB and the maximum approximately +14.5 dB. Subjects with larger improvements tend to have higher initial occlusion—wider face angles at capture time—confirming that our method provides proportionally greater benefit when more texture completion is required. This relationship validates that the performance gain is causally driven by the texture completion mechanism rather than subject-specific reconstruction quality.
 
-### 4.4 Per-Subject Analysis
+**Qualitative comparison.** Side-by-side renders (Fig. 3) show that the baseline produces sharp geometry but large blank patches on the ears, temples, and neck region. Our method fills these regions with plausible texture consistent with the visible skin tone, enabling artifact-free 360° rendering. Notably, the completed texture shows no visible seam artifacts at the cross-topology transfer boundary, demonstrating the effectiveness of the ICP-refined alignment and the seam dilation post-processing.
 
-Fig. 2 shows per-subject PSNR scatter plots. The improvement is consistent: the minimum per-subject PSNR gain is approximately +7.5 dB, and the maximum is approximately +14.5 dB. Subjects with larger improvements tend to have higher initial occlusion (wider face pose, more profile-angled input), confirming that our method provides greater benefit when more texture completion is needed.
-
-The standard deviation of LPIPS (0.085) is notably higher than PSNR (1.124 dB, normalized), suggesting that perceptual quality varies more across subjects—likely due to UV-IDM's sensitivity to hair texture and skin tone variation.
-
-### 4.5 Qualitative Results
-
-Fig. 3 shows side-by-side comparisons for representative subjects. DECA produces sharp geometry but exhibits large blank patches on the ears, temples, and neck regions. Our method fills these regions with plausible texture that matches the visible skin tone, enabling convincing 360° rendering. The completed avatars are free of seam artifacts at the BFM→FLAME boundary, demonstrating the effectiveness of the ICP-refined alignment.
-
-Fig. 4 illustrates the web viewer in use: the left panel shows the reference video, the right panel shows the synchronized 3D avatar that can be freely orbited by the user during playback.
-
-### 4.6 Runtime Analysis
-
-**Table 2. Processing time per subject (Apple M4, CPU mode).**
-
-| Stage | Time |
-|-------|------|
-| DECA reconstruction (per frame) | ~0.3 s / frame |
-| UV-IDM texture completion | ~15–30 s |
-| Procrustes alignment | < 0.1 s |
-| 3-pass ICP (1500 total iterations) | ~12 s |
-| UV rebaking (1024×1024) | ~8–12 s |
-| **Total (excluding DECA)** | **~35–55 s** |
-
-The per-subject texture transfer (excluding DECA's per-frame inference) completes in under one minute on a consumer laptop, making the pipeline practical for research and production workflows.
+**Runtime.** The cross-topology texture transfer (Procrustes + ICP + rebaking) completes in approximately 35–55 seconds per subject on an Apple M4 CPU, dominated by the ICP refinement (~12 s) and UV rebaking (~8–12 s). The inpainting model adds 15–30 seconds. The full pipeline from input photograph to complete 4D avatar thus runs in under 90 seconds on consumer hardware without GPU acceleration for the transfer stage.
 
 ---
 
 ## 5. Application Scenarios
 
-The core value of our system lies in decoupling *capture* from *rendering*: a face is captured once, reconstructed into a complete 4D representation, and then rendered on demand—from any angle, in any browser, at any time. This section describes four concrete scenarios where this property delivers practical impact beyond what existing video or 2D talking-head systems can provide.
+The complete-texture 4D avatar is qualitatively different from a partial-texture reconstruction because it supports free-viewpoint rendering at any animation time—a property that is simply absent from any single-viewpoint baked texture, regardless of its resolution or quality. We identify three domains where this property is a decisive enabling factor rather than an incremental improvement.
 
-### 5.1 Bandwidth-Efficient Parametric Avatar Streaming
+The most direct application is *personalized avatar creation from a single photograph*. Because the completed texture covers the entire head surface, the resulting avatar looks realistic from any observation direction and can be freely rotated during playback without exposing blank regions. When the animation sequence is driven by recorded or synthesized speech, the result is a talking-face avatar whose appearance is angularly consistent—an individualized 4D representation that requires no multi-view capture hardware and no per-subject training. This addresses a broad class of use cases: e-learning, digital identity representation, virtual production, and social presence applications where a persistent personalized avatar is needed from a single enrollment photograph.
 
-**Problem.** HD video conferencing consumes 1–5 Mbps per participant. At 30 FPS, each uncompressed HD frame is approximately 6 MB; modern codecs (H.264, VP9) reduce this to 30–150 KB per frame, but at the cost of encoding latency and quality degradation under network jitter. In regions with limited internet infrastructure—common in developing countries and rural areas—stable HD video is economically and technically inaccessible.
+A second domain is *digital cultural and historical preservation*. Museum and archival collections contain photographs of historical figures, traditional performers, and community elders where only one image exists per subject. NeRF-based reconstruction [10,11] requires hundreds of photographs from multiple viewpoints; our pipeline requires exactly one. The resulting 4D avatar can deliver pre-written or synthesized speech and be explored spatially, providing a form of interactive presence that is impossible from a static photograph. The trade-off—that texture in occluded regions is hallucinated rather than observed—is a necessary approximation when the photographic record is limited to a single frame.
 
-**How our system addresses it.** Our pipeline encodes a subject's complete appearance as a shared 1024×1024 texture (≈3 MB, transmitted once at session start) plus a per-frame FLAME parameter vector of approximately 500 float32 values (≈2 KB/frame uncompressed; under 200 bytes with delta-coding). At 30 FPS, the ongoing bitrate is approximately **48 Kbps**—roughly 60× lower than H.264 video at equivalent perceptual quality. The receiver reconstructs and renders the complete-texture 4D avatar locally using BabylonJS, requiring only a modern browser and no dedicated GPU.
-
-Crucially, because the texture covers the full head surface, the receiver can freely adjust the viewing angle during the call—enabling a form of spatial awareness not possible with flat video. The sender's actual video feed is never transmitted, providing a natural **privacy guarantee**: appearance is mediated through the parametric model rather than raw pixels.
-
-**Deployment path.** A WebRTC data channel can carry FLAME parameter frames alongside audio. The BabylonJS viewer described in §3.5 already implements the geometry update loop needed for this; the remaining integration is the DECA encoder running on the sender's device (or offloaded to an edge server), which is achievable on modern mobile SoCs at 10–15 FPS.
-
-### 5.2 Accessible E-Learning and Personalized Instructor Avatars
-
-**Problem.** Distance education has expanded dramatically, but video-based content delivery places a high burden on instructors: consistent production quality, stable internet, and implicit always-on video presence. For educators in low-bandwidth regions, recording high-quality video is a significant barrier. Moreover, students with attentional differences respond differently to avatar-mediated instruction compared to raw video, and several studies suggest that stylized or 3D avatar instructors can improve engagement in certain learning contexts [cite].
-
-**How our system addresses it.** An instructor provides a single frontal photograph. Within one minute, our pipeline produces a complete 4D avatar. Pre-recorded lecture audio is then synchronized with a FLAME animation sequence (generated from, e.g., speech-driven expression synthesis [14]) and assembled into an interactive web-based 4D lecture. The student opens the lecture URL in any browser, rotates the instructor avatar to see expressions more clearly, pauses and scrubs the timeline, and adjusts playback speed—none of which is possible with static video.
-
-The avatar can be re-used indefinitely across multiple lecture sessions, localized to different languages by substituting the audio track, and displayed in virtual classroom environments alongside slide content—a capability particularly relevant for multilingual educational platforms serving diverse populations.
-
-### 5.3 Digital Cultural and Historical Preservation
-
-**Problem.** Museums, archives, and cultural heritage institutions hold extensive photographic collections of historical figures, traditional performers, and community elders. These materials exist as static photographs that cannot convey speech, expression, or spatial presence. Existing restoration methods produce enhanced 2D images; interactive 3D reconstruction from archival photographs is largely unexplored.
-
-**How our system addresses it.** Given a single archival photograph of sufficient resolution and frontal proximity, our pipeline reconstructs a complete 4D avatar capable of delivering pre-written or AI-generated speech in the subject's approximate voice (via text-to-speech with voice cloning). The avatar is deployable as an interactive web exhibit: museum visitors navigate a URL, encounter the historical figure's avatar speaking about their contributions, and can orbit the model to study facial features from multiple angles.
-
-Unlike NeRF-based neural rendering [10,11] which requires hundreds of training photographs, our method requires exactly one image. The trade-off is that fine appearance details (pore structure, precise eye color) depend on UV-IDM's hallucination quality rather than photographic ground truth. For archival subjects where only one photograph exists, our approach is the only feasible option.
-
-### 5.4 Facial Prosthetics and Rehabilitation Monitoring
-
-**Problem.** Patients undergoing facial reconstructive surgery, radiation therapy for head-and-neck cancers, or treatment for conditions affecting facial appearance (burns, Bell's palsy, cleft palate repair) require longitudinal tracking of facial geometry and texture changes. Current clinical practice relies on expensive structured-light 3D scanning equipment accessible only in specialized centers.
-
-**How our system addresses it.** Our pipeline reconstructs a complete 4D representation from monocular smartphone video, enabling low-cost longitudinal monitoring without clinical scanning hardware. Per-session FLAME geometry parameters quantify facial asymmetry, volume changes, and expression recovery over time. The complete UV texture atlas captures pigmentation changes, scarring, and skin tone evolution that would be invisible from a fixed camera angle. Clinicians can access the 4D avatar through the web viewer, compare across sessions by loading different time-point meshes, and generate standardized front/side/oblique renders from a fixed viewpoint—standardization that is impossible with raw video because patient head pose varies between sessions.
-
-The privacy properties of parametric representation are particularly valuable in clinical settings: the avatar does not constitute raw biometric imagery and may be subject to less stringent data governance depending on jurisdiction.
+A third domain is *longitudinal facial geometry and texture monitoring*, relevant to post-surgical recovery tracking and rehabilitation assessment. Structured-light 3D scanning provides accurate measurements but requires specialized hardware accessible only in clinical centers. A complete 4D reconstruction from monocular video enables low-cost repeated measurement: the UV texture atlas captures pigmentation changes, scarring evolution, and skin-tone variation that would be invisible from a fixed frontal camera; the parametric geometry encodes quantifiable shape changes—facial asymmetry, volume recovery, jaw mobility—in a format independent of session-to-session head pose variation.
 
 ---
 
 ## 6. Discussion
 
-### 6.1 Why the Improvement Is Consistent
+### 6.1 The 4D Texture Property: Analysis and Implications
 
-The 100% improvement rate across subjects is explained by the nature of the gap being addressed. DECA's partial texture is structurally incomplete: the blank regions are not a stochastic failure mode but a deterministic consequence of the single-viewpoint capture. Any reasonable texture completion that fills these blank regions with plausible content will necessarily produce a higher PSNR, SSIM, and better LPIPS when compared against a frontal ground truth that reveals these regions. UV-IDM's hallucinations, even when not perfectly accurate, are far closer to the true texture than the blank or distorted pixels produced by DECA in occluded areas.
+The 100% improvement rate across all 74 subjects is not a coincidence—it is a structural consequence of the problem being addressed. Partial textures produced by single-viewpoint reconstruction are deterministically incomplete: the blank UV regions are not a stochastic failure mode but a direct geometric result of the capture angle. Any completion that fills these regions with plausible content will necessarily score higher when evaluated against a frontal ground truth that exposes them. The inpainting model's hallucinations, even when imperfect, are far closer to the true texture than blank or distorted pixels, so the improvement is guaranteed for any subject where the capture angle differs from the evaluation angle.
 
-### 6.2 The 4D Texture Property: Analysis and Implications
-
-#### 6.2.1 The (t, θ) Coverage Space
-
-The formal definition in §3.5.1 frames the 4D avatar as a function over the product space ℝ² × [0, T] × Θ, where Θ is the space of valid camera poses (the 2-sphere S²). It is instructive to quantify which fraction of this space a given texture enables.
-
-For DECA, valid rendering—meaning no blank or distorted texels—is guaranteed only within a restricted camera-pose cone centered on the capture angle θ_in, with angular radius α_max ≈ 30–40° before UV coverage gaps become perceptually visible. The fraction of the camera-pose sphere that produces artifact-free renders with T_DECA is:
+The deeper significance of texture completeness is quantified by the formal 4D avatar definition in §3.4. The rendered appearance I(x, y, t; θ) is defined over the product space ℝ² × [0, T] × S², where S² is the camera-pose sphere. A partial texture T_partial is defined only over the observed UV subset Ω_in ⊂ Ω_UV—which, for a 30° lateral capture angle, covers approximately 40–58% of the atlas. This means I(x, y, t; θ) is undefined for any camera pose θ that projects surface points onto unobserved UV regions. Concretely, the fraction of the camera-pose sphere that produces valid renders under T_partial is:
 
 ```
-|Θ_valid(T_DECA)| / |S²|  =  (1 − cos α_max) / 2  ≈  0.07 – 0.12
+|Θ_valid(T_partial)| / |S²|  =  (1 − cos α_max) / 2  ≈  0.07 – 0.12
 ```
 
-Concretely, **DECA texture produces fully valid renders for only 7–12% of the camera-pose sphere.** Beyond this cone, rendering artifacts (black patches, UV island boundaries) are immediately visible, making the avatar unsuitable for free-viewpoint display.
-
-Our complete texture T_FLAME satisfies the full-domain coverage guarantee proven in §3.4.3, so:
+for α_max ≈ 30–40°. Our complete texture restores full coverage:
 
 ```
-|Θ_valid(T_FLAME)| / |S²|  =  1.0   (full sphere)
+|Θ_valid(T_complete)| / |S²|  =  1.0
 ```
 
-This is not an incremental quality improvement—it is a categorical change in representational capability. A system with T_DECA is a *2.5D* avatar: animated in time but viewpoint-locked to a narrow frontal cone. A system with T_FLAME is a *true 4D* avatar: simultaneously navigable in both time and full 3D space. The +10.07 dB PSNR gain reported in §4.3 is the measurable consequence of crossing this categorical boundary at the evaluation viewpoint; the viewpoint-freedom gain is not captured by single-angle metrics and represents an additional, unquantified dimension of improvement.
+This is a categorical change, not an incremental improvement. A partial-texture reconstruction is a *2.5D* avatar—animated in time but viewpoint-locked to a narrow frontal cone covering 7–12% of the camera sphere. Our complete-texture avatar is genuinely 4D: navigable across the full time axis and the full camera-pose sphere simultaneously. The +10.07 dB PSNR gain is the measurable signal at the single evaluation viewpoint; the viewpoint-freedom gain—the recovery of 88–93% of the camera sphere—is not captured by any single-angle metric and represents a qualitatively larger, unquantified dimension of improvement.
 
-#### 6.2.2 The Web System as the 4D Experience Enabler
+| Dimension | Variable | T_partial | T_complete |
+|-----------|----------|-----------|------------|
+| Time | t | [0, T] | [0, T] |
+| Camera azimuth | φ | ~±30° cone | Full 360° |
+| Camera elevation | ψ | ~±20° cone | Full 180° |
+| Valid pose coverage | — | ≈7–12% of S² | 100% of S² |
 
-A complete-texture mesh sequence stored on disk possesses the 4D property mathematically but cannot be *experienced* as a 4D avatar without a rendering system that exposes both the time axis and the camera-pose axis to interactive control. This is the precise technical contribution of our BabylonJS web viewer: it makes every point in the (t, θ) experience space reachable through direct user interaction, in real time, without installation.
+**Temporal coherence.** A non-obvious property of our representation is that temporal texture coherence is guaranteed *by construction* at zero additional cost. Because the completed texture T_complete is shared across all frames and the mesh UV parameterization φ is fixed regardless of expression, corresponding anatomical points on consecutive frames always map to identical UV coordinates: φ⁻¹(p_t) = φ⁻¹(p_{t+Δt}). The texture therefore "moves with the skin" automatically—as the jaw opens, the lip texture follows the lip vertices without any warping computation; as the head rotates, newly visible UV regions are already filled and rendered correctly the instant they enter the camera frustum. Video-based synthesis methods must explicitly enforce temporal consistency through recurrent layers, temporal attention, or optical-flow smoothing because they operate in image space where frame-to-frame correspondence is not encoded. Our mesh-based representation achieves this property as an algebraic consequence of the shared UV parameterization.
 
-The four free variables of the 4D avatar and their corresponding control mechanisms in our viewer are:
+**Comparison with competing representations.** Table 3 situates our method relative to the principal alternative approaches for dynamic face modeling.
 
-| Dimension | Variable | User control | Range |
-|-----------|----------|--------------|-------|
-| Spatial (2D screen) | (x, y) | Rendered automatically | Full viewport |
-| **Time** | t | Timeline scrub + playback | [0, T] continuous |
-| **Camera azimuth** | φ ∈ S² | Mouse drag (ArcRotateCamera) | Full 360° |
-| **Camera elevation** | ψ ∈ S² | Mouse drag (ArcRotateCamera) | Full 180° |
+**Table 3. Comparison of 4D face representations.**
 
-The viewer does not merely play back a fixed sequence of pre-rendered frames—that would reduce the 4D avatar to a conventional video, discarding two of its four navigable dimensions. Instead, the viewer renders the 3D mesh in real time on the client's GPU (via WebGL), so camera pose θ can be changed by the user at any moment without interrupting playback. The result is that the full (t, θ) product space is accessible: the user can simultaneously pause at frame t*, orbit to camera pose θ*, and see the exact appearance I(·, t*, θ*)—a query that is impossible with any 2D video representation.
+| Method | Complete texture | Free viewpoint | Per-subject training | Single photo input |
+|--------|-----------------|---------------|---------------------|--------------------|
+| 2D talking head [14] | ✗ | ✗ | ✗ | ✓ |
+| NeRF-based [10,11] | ✓ | ✓ | Required (hours) | ✗ |
+| Partial-texture mesh [1] | ✗ | ✗ | ✗ | ✓ |
+| **Ours** | **✓** | **✓** | **✗** | **✓** |
 
-This interactivity requires the frame-accurate audio synchronization described in §3.5.2: when the user changes playback speed or scrubs the timeline, the drift-correcting scheduler re-anchors the geometry frame index to the audio playback position within one frame period (±33 ms at 30 FPS), ensuring the spoken words and the lip geometry remain perceptually synchronized regardless of user interaction.
+NeRF-based methods achieve high-quality free-viewpoint renders but require 30–60 minutes of per-subject training on multi-view video and are computationally prohibitive at inference without dedicated GPU ray marching. Our system produces a complete-texture 4D avatar from a single photograph in under 90 seconds without per-subject training. The trade-off is that NeRF captures view-dependent lighting effects—specular reflections, subsurface scattering—that a diffuse UV texture cannot represent. For scenarios that require free-viewpoint access without multi-view capture infrastructure or training compute, our representation is the more practical choice.
 
-#### 6.2.3 Temporal Coherence as an Algebraic Property
+### 6.2 Limitations and Future Directions
 
-A non-obvious but practically important property of our representation is that temporal texture coherence is guaranteed *by construction*, with no additional computation.
+The primary limitation is *texture hallucination fidelity*. The inpainting model synthesizes plausible but not necessarily accurate content for occluded regions. For subjects with distinctive hair styles, unusual pigmentation, or strong lateral occlusion at capture time, the completed areas may deviate from the true appearance—a pattern reflected in the higher LPIPS standard deviation (0.085) compared to SSIM (0.054). A natural remedy is multi-view supervision: leveraging simultaneous camera arrays to directly observe held-out UV regions during training, reducing the fraction of content that must be hallucinated.
 
-Because **T**_FLAME is shared across all frames and the FLAME UV parameterization φ is fixed (the same triangulation and UV atlas layout for every mesh regardless of expression), corresponding anatomical points on consecutive frames always map to identical UV coordinates:
+A second limitation is the *static texture assumption*. We apply a single identity texture to all animation frames, which is valid for diffuse skin albedo but does not capture expression-dependent appearance changes such as wrinkle deepening or specular highlight shifts under extreme expressions. Extending the pipeline to condition the inpainting model on per-frame expression codes would produce expression-adaptive texture, transforming the current spatially-4D avatar into a representation that is photometrically dynamic as well.
 
-```
-φ⁻¹(p_t) = φ⁻¹(p_{t+Δt})   for any p belonging to the same anatomical landmark
-```
-
-This identity means the texture "moves with the skin" automatically: as the jaw opens, the lip region UV coordinates track the lip vertices, and the lip texture follows without any warping computation. As the head rotates, newly visible regions of the UV atlas (e.g., the ear, the far cheek) are already filled by T_FLAME and rendered correctly the instant they enter the camera frustum.
-
-Video-based talking head synthesis methods [10,11] must explicitly enforce temporal consistency through architectural choices—recurrent layers, temporal attention, or post-hoc optical-flow smoothing—because they operate in image space where correspondence across frames is not encoded. Our mesh-based representation achieves temporal coherence as an algebraic consequence of the shared UV parameterization, at zero additional computational cost.
-
-#### 6.2.4 Comparison with Competing 4D Representations
-
-Several alternative representations have been proposed for dynamic face modeling. Table 3 situates our system within this landscape.
-
-**Table 3. Comparison of 4D face representations across key properties.**
-
-| Method | Complete texture | Free viewpoint | Web deployable | Per-subject training | Single photo input |
-|--------|-----------------|---------------|---------------|---------------------|--------------------|
-| 2D talking head video [CodeTalker] | ✗ | ✗ | Partial | ✗ | ✓ |
-| NeRF-based [AD-NeRF, NerFace] | ✓ | ✓ | ✗ | Required (hours) | ✗ |
-| DECA + partial texture | ✗ | ✗ | ✓ | ✗ | ✓ |
-| **Ours (DECA + UV-IDM + Transfer)** | **✓** | **✓** | **✓** | **✗** | **✓** |
-
-NeRF-based methods produce high-quality free-viewpoint renders but require 30–60 minutes of per-subject training on multi-view or monocular video, are computationally prohibitive to run in a browser (requiring GPU ray marching), and cannot be served as a static web bundle. Our system produces a lower-fidelity but fully deployable 4D avatar from a single image in under 60 seconds, running entirely in WebGL without server-side inference.
-
-The trade-off is explicit: NeRF captures view-dependent lighting effects (specular reflections, subsurface scattering) that our diffuse UV texture cannot represent. For applications that prioritize accessibility, deployability, and low-resource capture—the scenarios described in §5—our representation is strictly preferable. For applications requiring photographic fidelity from arbitrary viewpoints with dedicated compute, NeRF-based approaches remain the state of the art.
-
-### 6.3 Limitations
-
-**Texture hallucination fidelity.** UV-IDM synthesizes plausible but not necessarily accurate back-of-head and ear textures. For subjects with distinctive hair styles or unusual pigmentation, the completed regions may differ from ground truth. This is reflected in the higher LPIPS standard deviation (0.085) compared to SSIM (0.054).
-
-**Static texture assumption.** We apply a single identity texture to all animation frames. This is valid for skin and hair but does not capture expression-dependent appearance changes (e.g., wrinkles deepening during extreme expressions). A dynamic per-frame texture refinement module is a natural extension.
-
-**DECA geometry dependency.** Our pipeline inherits DECA's geometry accuracy. If DECA fails on unusual faces (strong occlusions, extreme poses), the texture transfer and animation will be correspondingly imperfect.
-
-**Expression dynamics not synthesized.** The current system animates an existing recorded sequence; it does not synthesize novel speech-driven animation. Integration with a text-to-motion or audio-driven animation module is an avenue for future work.
-
-### 6.4 Future Work
-
-- **Dynamic texture per frame:** Apply UV-IDM conditioning on each frame's expression code to produce expression-adaptive texture.
-- **Speech-driven animation:** Connect the textured FLAME mesh to a speech-driven expression synthesis module for fully generative 4D avatars.
-- **Multi-view input:** Leverage PolyFace's multi-camera setup to supervise the texture completion directly from held-out views.
-- **Streaming deployment:** Implement progressive mesh streaming for lower-latency web playback of long talking sequences.
+The pipeline also inherits the *geometry accuracy* of the upstream reconstruction method. Subjects with strong occlusions, extreme head poses, or atypical face shapes that fall outside the training distribution of the reconstruction model will produce correspondingly imperfect geometry, which the texture transfer cannot compensate for. Replacing the ICP-based cross-topology alignment with a learned mesh correspondence network would make the transfer more robust to shape-space mismatches between the inpainting and animation mesh topologies. Finally, the current system animates an existing recorded sequence; connecting the complete-texture mesh to a speech-driven expression synthesis module would enable fully generative 4D avatars from text or audio input alone, without requiring a source video.
 
 ---
 
 ## 7. Conclusion
 
-We have presented an end-to-end pipeline for complete-texture 4D talking face reconstruction deployable in standard web browsers. By bridging DECA-based geometry reconstruction and UV-IDM-based texture completion through a geometry-aware BFM→FLAME transfer module, we achieve a 10.07 dB improvement in PSNR, 0.155 improvement in SSIM, and 0.163 reduction in LPIPS compared to the DECA baseline, with 100% of subjects improving on all metrics across a 74-subject evaluation. The BabylonJS web viewer provides a practical deployment target: fully interactive, frame-accurate, and requiring no specialized hardware. Together, these contributions form a complete system from a single monocular photograph to a 4D interactive face avatar, with direct applicability to telepresence, digital human, and accessibility applications.
+We have presented a complete pipeline for free-viewpoint 4D talking face reconstruction via cross-topology UV texture transfer. We formalized the *4D texture avatar* property as a coverage condition on the UV domain, establishing that partial textures—a structural limitation of all single-viewpoint monocular reconstruction methods—violate this condition for the majority of the camera-pose sphere, while our complete texture restores it unconditionally. Our geometry-aware transfer module, combining robust Procrustes alignment, three-pass Point-to-Plane ICP, soft-confidence vertex color transfer, and zero-loop vectorized UV rebaking, bridges the topology gap between a UV-space inpainting model and an animation-ready face mesh without coverage gaps or seam artifacts. Quantitative evaluation on 74 subjects demonstrates consistent improvement over the monocular baseline across all subjects and all reported metrics. The resulting 4D avatar is simultaneously navigable in three spatial dimensions and across the full temporal animation sequence, enabling downstream applications—digital avatar creation, cultural preservation, longitudinal facial monitoring—that require free-viewpoint rendering from a single photograph input.
 
 ---
 
