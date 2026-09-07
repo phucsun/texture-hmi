@@ -1,0 +1,27 @@
+# Moi truong cho pipeline danh gia (render_views / baselines / eval_protocol)
+# Cai:  python3 -m pip install -r requirements.txt
+#
+# Da kiem chung tren macOS (Apple Silicon) voi Python 3.11+.
+# Tren Linux co GPU, torch se tu dung CUDA neu ban cai ban torch tuong ung.
+
+numpy>=1.24
+scipy>=1.10
+opencv-python>=4.8
+Pillow>=10.0
+scikit-image>=0.21
+trimesh>=4.0
+
+# render offscreen (VTK). Da kiem chung chay duoc tren macOS.
+pyvista>=0.43
+
+# metric hoc sau
+torch>=2.0
+torchvision>=0.15
+lpips>=0.1.4
+facenet-pytorch>=2.5
+
+# detect 68 landmark 2D tren anh tham chieu
+face-alignment>=1.4
+
+# tuy chon: chi can neu chay lai align_and_transfer.py (ICP)
+# open3d>=0.17

@@ -74,25 +74,75 @@ Stages 1 uses existing methods as components. The contributions of this paper sp
 
 ### 3.2 Face Reconstruction and Texture Completion
 
-**Monocular geometry reconstruction.** We adopt a monocular 3D face reconstruction method [1] that encodes an input image through a ResNet-50 backbone into a compact parametric face model:
+#### 3.2.1 Monocular Geometry Reconstruction
+
+**Parameter regression.** Given an input RGB image **I**, we adopt a monocular 3D face reconstruction method [1] whose encoder, built on a ResNet-50 backbone, regresses a compact parameter vector:
 
 ```
-Θ = {β, θ, ψ, α, l, c}
+Θ = {β, θ_p, ψ, α, l, c}
 ```
 
-where **β** encodes identity shape, **θ** encodes head pose and jaw articulation, **ψ** encodes facial expression, **α** encodes PCA albedo coefficients, **l** encodes scene illumination as Spherical Harmonic (SH) coefficients, and **c** encodes weak-perspective camera projection. The decoder produces a triangular mesh {**V** ∈ R^{5023×3}, **F** ∈ Z^{9976×3}} with a fixed UV parameterization shared across all subjects and expressions.
+where **β** ∈ ℝ^{n_id} encodes identity shape coefficients, **θ_p** ∈ ℝ^6 encodes head pose as a 6-DoF rotation-translation vector (including the yaw angle θ_yaw used for identity frame selection), **ψ** ∈ ℝ^{n_exp} encodes per-frame expression deformation, **α** ∈ ℝ^{n_tex} encodes PCA albedo coefficients, **l** ∈ ℝ^{27} encodes scene illumination as 9-band Spherical Harmonic (SH) coefficients per RGB channel, and **c** ∈ ℝ^3 encodes weak-perspective camera parameters.
 
-The albedo texture **T**_recon is recovered by differentiable rasterization: each UV-atlas texel samples its color from the input image if the corresponding surface point is visible under the estimated camera; otherwise the texel is left empty or receives an unreliable extrapolated value. This *view-dependent baking* is the root cause of texture incompleteness. At a lateral capture angle of approximately 30° from frontal, quantitative analysis on our dataset shows that 42–67% of the UV atlas receives no valid observation, including the back of the scalp, ears, and the contralateral cheek region.
-
-**UV texture completion.** To synthesize content for the unobserved UV regions, we apply a UV-space inpainting diffusion model [3] that operates in a higher-resolution UV layout specifically designed for face texture generation. Given the partial reconstructed texture **T**_partial ∈ R^{H×H×3} and a binary validity mask **M** indicating observed texels, the model produces a complete texture:
+**Shape decoding.** The mesh vertices are reconstructed by combining a neutral identity shape with expression deformation over a learned basis:
 
 ```
-T_IDM = InpaintingModel(T_partial, M)
+V(β, ψ) = S̄ + B_id · β + B_exp · ψ  ∈  ℝ^{N×3}
 ```
 
-The model leverages structural face priors—bilateral skin tone continuity, approximate left-right symmetry, and high-frequency hair and pore detail—to hallucinate plausible content across all masked regions. It is invoked once per subject on the frame with the highest estimated frontal confidence, yielding a single identity texture **T**_IDM that encodes subject-specific albedo across the full head surface.
+where S̄ ∈ ℝ^{N×3} is the mean shape, **B_id** ∈ ℝ^{3N×n_id} is the identity shape basis, and **B_exp** ∈ ℝ^{3N×n_exp} is the expression basis, each learned from a large corpus of 3D face scans. N denotes the number of vertices and N_f the number of triangular faces in the target (animation) mesh; both are fixed constants determined by the parametric model's topology (specific values are reported in §4.1). The resulting mesh {**V** ∈ ℝ^{N×3}, **F** ∈ ℤ^{N_f×3}} carries a UV parameterization φ: Ω_UV → S defined by pre-stored UV coordinates and face indices, where S ⊂ ℝ³ denotes the face surface.
 
-The two meshes—the inpainting model's source mesh and the animation-ready target mesh—share the same semantic geometry but differ in vertex count, face topology, and UV parameterization. The source mesh has approximately 53,215 vertices with a UV atlas optimized for texture generation; the target mesh has 5,023 vertices with a UV layout optimized for real-time animation with fixed topology. Direct UV remapping between the two layouts is undefined. The following section describes our geometry-aware cross-topology transfer.
+**View-dependent texture baking.** The texture is recovered by differentiable rasterization rather than decoded from **α** alone—since **α** captures only a coarse statistical prior and discards the fine-grained identity details present in the image. For each texel (u, v) ∈ Ω_UV, the 3D surface point **p**(u, v) = φ(u, v) is projected to image space under the estimated camera:
+
+```
+(x, y) = π(p(u,v);  θ_p, c)
+```
+
+The texel color is assigned via a visibility function:
+
+```
+              ⎧ I(x, y)           if  p(u,v) ∈ Vis(I, θ_p, c)
+T_baked(u,v) = ⎨
+              ⎩ undefined          otherwise
+```
+
+where Vis(I, θ_p, c) is the set of surface points that simultaneously: (i) project within the image boundary, (ii) survive a depth-buffer occlusion test against all other mesh faces, and (iii) have a surface normal oriented toward the camera (n̂ · (−**ray**) > 0). Points failing any of these conditions receive no observation.
+
+**Coverage gap analysis.** Texture incompleteness is not a stochastic failure mode of the reconstruction method but a *deterministic geometric consequence* of the capture angle. The observable UV region is:
+
+```
+Ω_in(θ_p) = { (u,v) ∈ Ω_UV : p(u,v) ∈ Vis(I, θ_p, c) }
+```
+
+At a lateral capture angle of approximately 30° from frontal, empirical measurement on our dataset yields:
+
+```
+|Ω_in| / |Ω_UV|  ≈  0.40 – 0.58
+```
+
+meaning 42–60% of the UV atlas—including the back of the scalp, both ears, the contralateral cheek, and portions of the neck—receives no valid observation regardless of reconstruction accuracy. Every monocular method deriving texture from a single photograph shares this limitation structurally.
+
+**Identity frame selection.** For video input, the frame with maximum frontal confidence is selected for texture baking, measured by the absolute lateral yaw component |θ_yaw| of the estimated pose **θ_p**. The frame minimizing |θ_yaw| yields the largest Ω_in and thus the smallest occlusion mask requiring subsequent inpainting. Per-frame pose-expression parameters {**θ_p**_t, **ψ**_t} are extracted from all frames independently to drive the 4D animation sequence.
+
+#### 3.2.2 UV Texture Completion
+
+**Partial texture as inpainting input.** The baked texture **T**_baked and a binary validity mask **M** ∈ {0, 1}^{R_u×R_u}—where R_u is the UV atlas resolution of the inpainting model, M(u, v) = 1 if the texel was observed and 0 otherwise—are passed to a UV-space inpainting diffusion model [3]. This model is specifically trained on UV atlas layouts that parameterize the full head surface in a canonical unwrapping, covering occluded regions that are never visible from any single frontal or near-frontal view:
+
+```
+T_IDM = InpaintingModel(T_partial,  M)
+```
+
+The source mesh used by the inpainting model has N_src vertices (N_src ≫ N), providing higher surface resolution and finer detail than the animation mesh; specific values are reported in §4.1.
+
+**Conditional denoising.** The model executes a conditional score-based denoising process whose output is constrained to be consistent with **T**_partial on the observed region (M = 1) while synthesizing new content for M = 0 from learned priors. These priors jointly encode:
+
+- *Bilateral skin-tone continuity*: smooth color transitions across UV island seams, so synthesized ear and neck texture is consistent with the visible cheek albedo
+- *Approximate left-right symmetry*: the contralateral cheek and ear are synthesized as approximate reflections of the visible side, with fidelity proportional to the available symmetric evidence
+- *High-frequency surface detail*: pore structure, fine wrinkles, and hair follicle distributions are hallucinated from the model's learned texture distribution conditioned on the visible texture's coarse statistics
+
+The output **T**_IDM ∈ ℝ^{R_u×R_u×3} is a complete UV atlas with T_IDM(u, v) defined for all (u, v) ∈ Ω_UV. Because the subject's albedo is identity-constant under the diffuse assumption, the model is invoked once per subject—not per frame—on the identity frame selected above.
+
+**Topology mismatch.** **T**_IDM is defined in the source mesh's UV parameterization (Ω_src). The animation mesh uses a topologically distinct UV parameterization (Ω_tgt) with a different vertex count, face connectivity, and island layout. Both parameterizations map the same face surface, but numerically: a UV coordinate (u, v) ∈ Ω_src resolves to a different surface point than the same (u, v) ∈ Ω_tgt. Direct sampling of **T**_IDM using Ω_tgt UV coordinates would therefore produce a completely incorrect texture assignment—color values from one face region mapped onto a geometrically unrelated region of the animation mesh. This topology mismatch is not addressable by UV-space remapping and requires the geometry-guided transfer described in §3.3.
 
 ---
 
@@ -115,9 +165,9 @@ Pre-centering eliminates large spatial offsets between the two coordinate frames
 
 **Axis-convention detection.** The source and target meshes may use different axis orientations (Y-up vs. Z-up, left-handedness, etc.). We test four candidate axis permutations — {XYZ, XZY, X(−Y)Z, XY(−Z)} — and select the one that minimizes the mean squared landmark distance to **Q**_c prior to running the full Procrustes:
 ```
-axis* = argmin_{T ∈ {XYZ, XZY, X-YZ, XY-Z}}  (1/68) ||T(P_c) − Q_c||²_F
+axis* = argmin_{A ∈ {XYZ, XZY, X-YZ, XY-Z}}  (1/68) ||A(P_c) − Q_c||²_F
 ```
-This axis-detection step makes the pipeline robust to coordinate convention mismatches between the inpainting and reconstruction pipelines.
+where A denotes an axis-permutation operator. This axis-detection step makes the pipeline robust to coordinate convention mismatches between the inpainting and reconstruction pipelines.
 
 **Bounding-box normalization.** To bring both point clouds to a comparable scale before Procrustes, we normalize the source landmarks by the ratio of bounding-box diagonals:
 ```
@@ -125,15 +175,15 @@ s_pre = diag(Q_c) / diag(P_c),    P_c ← s_pre · P_c
 ```
 where diag(·) = ||max(·) − min(·)||₂. This pre-normalization ensures Procrustes scale estimation is not dominated by large-scale outliers.
 
-**Umeyama Procrustes via SVD.** We compute the rotation **R** and residual scale *s* via singular value decomposition of the cross-covariance matrix **K** = **Q**_c^T **P**_c / 68:
+**Umeyama Procrustes via SVD.** We compute the rotation **R** ∈ SO(3) and residual scale *s* ∈ ℝ via singular value decomposition of the cross-covariance matrix **K** = **Q**_c^T **P**_c / 68:
 ```
 [U, Σ, V^T] = SVD(K)
-S = diag(1, 1, det(U)·det(V))      ← reflection correction
-R = U S V^T
-s = tr(Σ S) / Var(P_c)
+D = diag(1, 1, det(U)·det(V))      ← reflection-correction diagonal
+R = U D V^T
+s = tr(Σ D) / Var(P_c)
 t = q̄ − s · R · p̄
 ```
-The reflection-correction diagonal **S** prevents the degenerate solution **R** = −**I** when the landmark cloud is mirror-symmetric. A scale guard clamps *s* to [10⁻³, 10³] to prevent explosion due to degenerate inputs.
+where **U**, **V** ∈ SO(3) are the left and right singular vectors, **Σ** = diag(σ₁, σ₂, σ₃) is the diagonal singular value matrix, and **D** is the reflection-correction diagonal that prevents the degenerate solution **R** = −**I** when the landmark cloud is mirror-symmetric. The translation vector **t** ∈ ℝ³ completes the similarity transform. A scale guard clamps *s* to [10⁻³, 10³] to prevent explosion due to degenerate inputs.
 
 After Procrustes, the source mesh vertices are transformed as:
 ```
@@ -147,9 +197,9 @@ Despite robust Procrustes alignment, residual misalignment persists due to (i) s
 
 Both meshes are converted to oriented point clouds, with normals estimated from the mesh vertex normals. The ICP objective in each pass minimizes the point-to-plane distance:
 ```
-E(T) = Σ_{(p,q) ∈ C} [(T·p − q) · n̂_q]²
+E(Ξ) = Σ_{(p,q) ∈ Π} [(Ξ·p − q) · n̂_q]²
 ```
-where **C** is the set of inlier correspondences, **T** is the rigid transformation to estimate, and **n̂**_q is the unit surface normal at target point **q**.
+where **Π** is the set of inlier source–target point correspondences, **Ξ** ∈ SE(3) is the 4×4 rigid transformation matrix to estimate (distinct from the texture map T), and **n̂**_q ∈ ℝ³ is the unit surface normal at target point **q**.
 
 **Pass 1 — Coarse Point-to-Plane.** Both point clouds are voxel-downsampled at resolution δ = 0.002 (normalized units), reducing point count by approximately 70–85%. We run 500 iterations with correspondence distance threshold d₁ = 0.05, convergence criteria relative_fitness = 10⁻⁷ and relative_rmse = 10⁻⁷. This pass corrects large-scale rotational and translational residuals from Procrustes.
 
@@ -206,27 +256,27 @@ The result is a 100% vertex coverage guarantee: every target vertex receives a v
 
 #### 3.3.4 Zero-Loop Vectorized UV Rasterization and Baking
 
-The per-vertex color array **C** ∈ R^{N×3} must be projected into the 2D target mesh UV atlas at 1024×1024 resolution. This is achieved through a fully vectorized rasterizer that contains no Python-level loops over either pixels or faces.
+The per-vertex color array **C** ∈ R^{N×3} must be projected into the 2D target mesh UV atlas at R_tex×R_tex resolution, where R_tex = 1024 is the output atlas resolution. This is achieved through a fully vectorized rasterizer that contains no Python-level loops over either pixels or faces.
 
 **UV rasterization.** For each target mesh triangle, we compute:
-1. Pixel-space vertex coordinates: **px** = UV_u · (S−1), **py** = (1 − UV_v) · (S−1), where S = 1024.
+1. Pixel-space vertex coordinates: **px** = UV_u · (R_tex−1), **py** = (1 − UV_v) · (R_tex−1).
 2. Axis-aligned bounding box (AABB): [bbx0, bbx1] × [bby0, bby1] for each triangle.
 3. Triangle area via the cross-product sign: area = (p1x − p0x)(p2y − p0y) − (p1y − p0y)(p2x − p0x). Degenerate triangles (|area| < 10⁻⁶) are skipped.
 
 All (face, pixel) candidate pairs are then enumerated as a flat array using `np.repeat` and integer-division indexing—the key innovation that eliminates the face loop:
 ```
-lfi_flat = np.repeat(arange(M), pixels_per_face)    # flat face assignment
+lfi_flat = np.repeat(arange(N_f), pixels_per_face)  # flat face assignment
 loc_row  = candidates // cols_per_face[lfi_flat]    # local row within bbox
 loc_col  = candidates %  cols_per_face[lfi_flat]    # local col within bbox
 ```
-For each candidate pixel (abs_x, abs_y), an edge-function test checks containment within the triangle:
+where N_f is the number of target mesh faces. For each candidate pixel (abs_x, abs_y), an edge-function test checks containment within the triangle:
 ```
 w₀ = ((p2x−p1x)(y−p1y) − (p2y−p1y)(x−p1x)) / area
 w₁ = ((p0x−p2x)(y−p2y) − (p0y−p2y)(x−p2x)) / area
 w₂ = ((p1x−p0x)(y−p0y) − (p1y−p0y)(x−p0x)) / area
 inside = (w₀ ≥ 0) ∧ (w₁ ≥ 0) ∧ (w₂ ≥ 0)
 ```
-All candidate pairs are tested simultaneously in a single NumPy pass. The barycentric weights (w₀, w₁, w₂) are scattered into a `face_map` (H×W int32, storing face index per texel) and `bary_map` (H×W×3 float32, storing barycentric weights). To bound peak RAM usage, faces are processed in chunks of at most RAST_MAX_CAND = 4,000,000 candidate pixels per chunk.
+All candidate pairs are tested simultaneously in a single NumPy pass. The barycentric weights (w₀, w₁, w₂) are scattered into a `face_map` (R_tex×R_tex int32, storing face index per texel) and `bary_map` (R_tex×R_tex×3 float32, storing barycentric weights). To bound peak RAM usage, faces are processed in chunks of at most RAST_MAX_CAND = 4,000,000 candidate pixels per chunk.
 
 **Barycentric baking.** Once the `face_map` is populated, the final texture color at each covered texel (y, x) is computed as:
 ```
@@ -267,24 +317,26 @@ The final output **T**_complete ∈ R^{1024×1024×3} has 100% texel coverage an
 
 We define the concept of a *4D texture avatar* formally to precisely characterize what our system produces and why texture completeness is a *necessary* condition—not merely a quality improvement.
 
-**Notation.** Let S ⊂ R³ denote the face surface, modeled as a 2-manifold with UV parameterization φ: Ω_UV → S, where Ω_UV = [0,1]² is the UV domain. A parametric face model provides a time-varying surface through per-frame vertex positions **V**_t, so that S_t is the deformed mesh at time *t* encoding shape, expression, jaw, and head pose. A camera model with pose θ ∈ Θ defines a projection π(·; θ): S → ℝ² and a visibility set:
+**Notation.** We use the following symbols consistently throughout: S ⊂ ℝ³ — the face surface (a 2-manifold); φ: Ω_UV → S — the UV parameterization mapping UV domain Ω_UV = [0,1]² to surface points; T: Ω_UV → ℝ³ — the UV texture map; **V**_t ∈ ℝ^{N×3} — per-frame vertex positions (N as in §3.2); N_f — number of mesh faces; K — number of UV coordinate pairs; τ — total animation duration; θ ∈ Θ — camera pose parameter (distinct from the head-pose parameter **θ_p** in §3.2).
+
+A parametric face model provides a time-varying surface through per-frame vertex positions **V**_t, so that S_t is the deformed mesh at time t ∈ [0, τ] encoding shape, expression, jaw, and head pose. A camera model with pose θ ∈ Θ defines a projection π(·; θ): S → ℝ² and a visibility set:
 
 ```
 Vis(t, θ) = { p ∈ S_t : p is visible from camera θ at time t }
 ```
 
-The *rendered appearance* at screen pixel **x** = (x, y) under camera pose θ at time t is:
+The *rendered appearance* at screen pixel (x, y) under camera pose θ at time t is:
 
 ```
 I(x, y, t; θ) = T(φ⁻¹(π⁻¹(x, y; θ, t)))
 ```
 
-where T: Ω_UV → ℝ³ is the UV texture map. Informally, to render pixel (x, y), we find its corresponding 3D surface point via inverse projection, look up its UV coordinate via the inverse parameterization φ⁻¹, and sample the texture T.
+where T: Ω_UV → ℝ³ is the UV texture map. To render pixel (x, y), we find its corresponding 3D surface point via inverse projection π⁻¹, look up its UV coordinate via the inverse parameterization φ⁻¹, and sample the texture T.
 
 **The 4D avatar.** We define a *4D texture avatar* as the triple:
 
 ```
-A = ( {V_t}_{t ∈ [0,T]},   φ,   T )
+A = ( {V_t}_{t ∈ [0,τ]},   φ,   T )
 ```
 
 such that T is defined on the *entire* UV domain Ω_UV. The descriptor "4D" captures that the rendered appearance I(x, y, t; θ) is a function over four free variables: two spatial screen coordinates (x, y), time t, and camera pose θ — yielding a well-defined image for any combination of these four variables.
@@ -295,21 +347,21 @@ such that T is defined on the *entire* UV domain Ω_UV. The descriptor "4D" capt
 Ω_in(θ_in) = { φ⁻¹(p) : p ∈ Vis(t_in, θ_in) } ⊂ Ω_UV
 ```
 
-For monocular reconstruction from a single C4-angle image (approximately 30° lateral offset from frontal), empirical measurement on our dataset yields:
+For monocular reconstruction from a single C4-angle image (approximately 30° lateral offset from frontal, corresponding to head pose **θ_p**^in), empirical measurement on our dataset yields:
 
 ```
 |Ω_in| / |Ω_UV|  ≈  0.40 – 0.58
 ```
 
-meaning 42–60% of the UV atlas receives no valid observation. The partial texture T_partial is defined as:
+meaning 42–60% of the UV atlas receives no valid observation. The partial texture T_partial is therefore defined as:
 
 ```
-           ⎧ I_in(π(φ(uv); θ_in))    if uv ∈ Ω_in(θ_in)
+              ⎧ I_in(π(φ(uv); θ_p^in))    if uv ∈ Ω_in(θ_p^in)
 T_partial(uv) = ⎨
-           ⎩ undefined                otherwise
+              ⎩ undefined                   otherwise
 ```
 
-As a direct consequence, for any novel camera pose θ ≠ θ_in and any time t, the rendered image I(x, y, t; θ) contains undefined (black or distorted) regions wherever the projected surface point φ(uv) falls outside Ω_in. The 4D avatar property is *violated*: only a restricted subset of (t, θ) pairs yields valid renderings.
+where I_in is the input image captured at pose **θ_p**^in. As a direct consequence, for any novel camera pose θ ≠ θ_eval and any time t, the rendered image I(x, y, t; θ) contains undefined regions wherever the projected surface point φ(uv) falls outside Ω_in. The 4D avatar property is *violated*: only a restricted subset of (t, θ) pairs yields valid renderings.
 
 
 
@@ -319,15 +371,15 @@ Our completed texture **T**_complete, obtained through inpainting and cross-topo
 T_complete(uv) is defined   ∀ uv ∈ Ω_UV
 ```
 
-guaranteeing that I(x, y, t; θ) is defined for *any* camera pose θ ∈ Θ and any animation time t ∈ [0, T]. This is the precise sense in which our pipeline produces a true 4D avatar: texture completeness is not a cosmetic improvement but the enabling condition for the 4D property.
+guaranteeing that I(x, y, t; θ) is defined for *any* camera pose θ ∈ Θ and any animation time t ∈ [0, τ]. This is the precise sense in which our pipeline produces a true 4D avatar: texture completeness is not a cosmetic improvement but the enabling condition for the 4D property.
 
 **Concrete representation.** Each animation frame is a tuple:
 
 ```
-f_t = { V_t ∈ ℝ^{N×3},   F ∈ ℤ^{M×3},   UV ∈ ℝ^{K×2},   T_complete ∈ ℝ^{1024×1024×3} }
+f_t = { V_t ∈ ℝ^{N×3},   F ∈ ℤ^{N_f×3},   UV ∈ ℝ^{K×2},   T_complete ∈ ℝ^{R_tex×R_tex×3} }
 ```
 
-where N, M, K are determined by the target mesh topology. **T**_complete is shared across all frames under the identity-constant albedo assumption. The sequence {f_t}_{t=1}^{T} constitutes the 4D avatar: spatially navigable in the full camera-pose sphere and temporally navigable across the complete animation.
+where N (vertex count), N_f (face count), and K (UV coordinate count) are determined by the target mesh topology (specific values in §4.1), and R_tex = 1024 is the output texture atlas resolution. **T**_complete is shared across all frames under the identity-constant albedo assumption. The sequence {f_t}_{t=1}^{τ} constitutes the 4D avatar: spatially navigable across the full camera-pose sphere and temporally navigable across the complete animation.
 
 ---
 
@@ -335,7 +387,9 @@ where N, M, K are determined by the target mesh topology. **T**_complete is shar
 
 ### 4.1 Experimental Setup
 
-We evaluate on **PolyFace** [15], a multi-view face dataset capturing 74 subjects under controlled studio lighting. Each subject is recorded simultaneously from 7 calibrated cameras at angles C1, C4, C7, C10, C13, C17, and C24 relative to the frontal axis. We use C4 images (approximately 30° lateral offset) as input and C7 images (frontal) as ground truth. This protocol reflects a realistic capture scenario where the input photograph is taken at a non-frontal angle, and the quality of novel-view rendering is evaluated against the frontal view that most clearly exposes previously occluded surface regions. For each subject, we render the reconstructed avatar from the C7 camera viewpoint and compare against the ground-truth C7 photograph, aligned and cropped to the face region.
+We evaluate on **PolyFace** [15], a multi-view face dataset capturing 74 subjects under controlled studio lighting. Each subject is recorded simultaneously from 7 calibrated cameras at angles C1, C4, C7, C10, C13, C17, and C24 relative to the frontal axis. We use C4 images (approximately 30° lateral offset) as input and C7 images (frontal) as ground truth.
+
+The target animation mesh has N = 5,023 vertices, N_f = 9,976 faces, and K = 5,023 UV coordinate pairs with a fixed topology shared across all subjects. The source inpainting mesh has N_src = 53,215 vertices with a denser UV atlas of resolution R_u = 512. The output texture atlas is baked at R_tex = 1024 × 1024 pixels. This protocol reflects a realistic capture scenario where the input photograph is taken at a non-frontal angle, and the quality of novel-view rendering is evaluated against the frontal view that most clearly exposes previously occluded surface regions. For each subject, we render the reconstructed avatar from the C7 camera viewpoint and compare against the ground-truth C7 photograph, aligned and cropped to the face region.
 
 We report three complementary metrics: **PSNR** (dB, higher is better) measures pixel-level reconstruction accuracy; **SSIM** (higher is better) measures perceptual structure preservation; and **LPIPS** [16] (lower is better) measures deep feature-level perceptual similarity, which correlates more strongly with human judgment than pixel-level metrics. We compare against the partial-texture reconstruction baseline produced by the monocular face reconstruction method [1] without our texture completion and transfer pipeline.
 
@@ -379,7 +433,7 @@ A third domain is *longitudinal facial geometry and texture monitoring*, relevan
 
 The 100% improvement rate across all 74 subjects is not a coincidence—it is a structural consequence of the problem being addressed. Partial textures produced by single-viewpoint reconstruction are deterministically incomplete: the blank UV regions are not a stochastic failure mode but a direct geometric result of the capture angle. Any completion that fills these regions with plausible content will necessarily score higher when evaluated against a frontal ground truth that exposes them. The inpainting model's hallucinations, even when imperfect, are far closer to the true texture than blank or distorted pixels, so the improvement is guaranteed for any subject where the capture angle differs from the evaluation angle.
 
-The deeper significance of texture completeness is quantified by the formal 4D avatar definition in §3.4. The rendered appearance I(x, y, t; θ) is defined over the product space ℝ² × [0, T] × S², where S² is the camera-pose sphere. A partial texture T_partial is defined only over the observed UV subset Ω_in ⊂ Ω_UV—which, for a 30° lateral capture angle, covers approximately 40–58% of the atlas. This means I(x, y, t; θ) is undefined for any camera pose θ that projects surface points onto unobserved UV regions. Concretely, the fraction of the camera-pose sphere that produces valid renders under T_partial is:
+The deeper significance of texture completeness is quantified by the formal 4D avatar definition in §3.4. The rendered appearance I(x, y, t; θ) is defined over the product space ℝ² × [0, τ] × S², where S² is the camera-pose sphere and τ is the animation duration. A partial texture T_partial is defined only over the observed UV subset Ω_in ⊂ Ω_UV—which, for a 30° lateral capture angle, covers approximately 40–58% of the atlas. This means I(x, y, t; θ) is undefined for any camera pose θ that projects surface points onto unobserved UV regions. Concretely, the fraction of the camera-pose sphere that produces valid renders under T_partial is:
 
 ```
 |Θ_valid(T_partial)| / |S²|  =  (1 − cos α_max) / 2  ≈  0.07 – 0.12
@@ -397,12 +451,12 @@ This is a categorical change, not an incremental improvement. A partial-texture 
 
 | Dimension | Variable | T_partial | T_complete |
 |-----------|----------|-----------|------------|
-| Time | t | [0, T] | [0, T] |
-| Camera azimuth | φ | ~±30° cone | Full 360° |
-| Camera elevation | ψ | ~±20° cone | Full 180° |
+| Time | t | [0, τ] | [0, τ] |
+| Camera azimuth | θ_az | ~±30° cone | Full 360° |
+| Camera elevation | θ_el | ~±20° cone | Full 180° |
 | Valid pose coverage | — | ≈7–12% of S² | 100% of S² |
 
-**Temporal coherence.** A non-obvious property of our representation is that temporal texture coherence is guaranteed *by construction* at zero additional cost. Because the completed texture T_complete is shared across all frames and the mesh UV parameterization φ is fixed regardless of expression, corresponding anatomical points on consecutive frames always map to identical UV coordinates: φ⁻¹(p_t) = φ⁻¹(p_{t+Δt}). The texture therefore "moves with the skin" automatically—as the jaw opens, the lip texture follows the lip vertices without any warping computation; as the head rotates, newly visible UV regions are already filled and rendered correctly the instant they enter the camera frustum. Video-based synthesis methods must explicitly enforce temporal consistency through recurrent layers, temporal attention, or optical-flow smoothing because they operate in image space where frame-to-frame correspondence is not encoded. Our mesh-based representation achieves this property as an algebraic consequence of the shared UV parameterization.
+**Temporal coherence.** A non-obvious property of our representation is that temporal texture coherence is guaranteed *by construction* at zero additional cost. Because the completed texture T_complete is shared across all frames and the mesh UV parameterization φ is fixed regardless of expression, corresponding anatomical points on consecutive frames always map to identical UV coordinates: φ⁻¹(p_t) = φ⁻¹(p_{t+Δt}), where p_t and p_{t+Δt} are the same anatomical point on the surface at consecutive frames. The texture therefore "moves with the skin" automatically—as the jaw opens, the lip texture follows the lip vertices without any warping computation; as the head rotates, newly visible UV regions are already filled and rendered correctly the instant they enter the camera frustum. Video-based synthesis methods must explicitly enforce temporal consistency through recurrent layers, temporal attention, or optical-flow smoothing because they operate in image space where frame-to-frame correspondence is not encoded. Our mesh-based representation achieves this property as an algebraic consequence of the shared UV parameterization.
 
 **Comparison with competing representations.** Table 3 situates our method relative to the principal alternative approaches for dynamic face modeling.
 
@@ -429,7 +483,7 @@ The pipeline also inherits the *geometry accuracy* of the upstream reconstructio
 
 ## 7. Conclusion
 
-We have presented a complete pipeline for free-viewpoint 4D animated face reconstruction via cross-topology UV texture transfer. We formalized the *4D texture avatar* property as a coverage condition on the UV domain, establishing that partial textures—a structural limitation of all single-viewpoint monocular reconstruction methods—violate this condition for the majority of the camera-pose sphere, while our complete texture restores it unconditionally. Our geometry-aware transfer module, combining robust Procrustes alignment, three-pass Point-to-Plane ICP, soft-confidence vertex color transfer, and zero-loop vectorized UV rebaking, bridges the topology gap between a UV-space inpainting model and an animation-ready face mesh without coverage gaps or seam artifacts. Quantitative evaluation on 74 subjects demonstrates consistent improvement over the monocular baseline across all subjects and all reported metrics. The resulting 4D avatar is simultaneously navigable in three spatial dimensions and across the full temporal animation sequence, enabling downstream applications—digital avatar creation, cultural preservation, longitudinal facial monitoring—that require free-viewpoint rendering from a single photograph input.
+We have presented a complete end-to-end pipeline for free-viewpoint 4D face avatar reconstruction from a single photograph. The pipeline integrates monocular face reconstruction, UV-space inpainting, geometry-aware cross-topology texture transfer, and 4D avatar assembly into a unified system that produces complete-surface textured animated meshes in under 90 seconds on consumer hardware. We formalized the *4D texture avatar* property as a coverage condition on the UV domain, establishing that partial textures—a structural limitation of all single-viewpoint monocular methods—violate this condition for the majority of the camera-pose sphere, while our complete texture restores it unconditionally. The cross-topology texture transfer module, combining robust Procrustes alignment, three-pass Point-to-Plane ICP, soft-confidence vertex color transfer, and zero-loop vectorized UV rebaking, resolves the topology mismatch between the inpainting mesh and the animation mesh without coverage gaps or seam artifacts. Quantitative evaluation on 74 subjects demonstrates consistent improvement over the partial-texture baseline across all subjects and all reported metrics, with the 100% improvement rate being a structural consequence of the completeness property rather than subject-specific variability. The resulting 4D avatar is simultaneously navigable across three spatial dimensions and the full temporal animation axis, enabling downstream applications—personalized avatar creation, cultural preservation, longitudinal facial monitoring—that require free-viewpoint rendering from a single photograph.
 
 ---
 

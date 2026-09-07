@@ -1,18 +1,44 @@
-# Dependencies
+# ─── Dependencies ────────────────────────────────────────────────────────────
 node_modules/
 
-# Large binary data files (>100MB, exceeds GitHub limit)
-landmarks/uv_idm.mat
+# ─── Bo du lieu (khong day len GitHub) ───────────────────────────────────────
+# Lay tu nguon rieng roi dat vao dung ten thu muc nhu duoi day.
+results_C4_final/          # mesh DECA + texture baked
+polyface_09042026/         # anh tham chieu V-Face, 7 goc / subject
+uv-idm-output/             # atlas UV-IDM
+output_batch/              # ket qua kien truc cu (UV-IDM + transfer)
+test/                      # chuoi frame cheo1
+deca/                      # anh render cu (chup tay trong browser)
+hmi/                       # anh render cu (chup tay trong browser)
+eval_report/               # bao cao danh gia cu
+landmarks/uv_idm.mat       # >100MB, vuot gioi han GitHub
 
-# Build output
+# ─── Ket qua sinh ra khi chay pipeline ───────────────────────────────────────
+renders/
+baselines/
+tessera_output/
+ablation_output/
+deca_albedo/
+results*.csv
+metrics.csv
+
+# ─── Build ───────────────────────────────────────────────────────────────────
 dist/
 .vite/
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+main.tex.bak*
+main.tex.ieee.bak
+Latex-Template-for-Springer/
 
-# OS
+# ─── OS / Python ─────────────────────────────────────────────────────────────
 .DS_Store
-
-# Python
 __pycache__/
 *.pyc
 *.pyo
 .env
+.venv/

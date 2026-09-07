@@ -40,14 +40,42 @@ except ImportError:
     HAS_O3D = False
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIGURATION
+# CONFIGURATION  (overridable via CLI args for batch processing)
 # ─────────────────────────────────────────────────────────────────────────────
-SRC_OBJ   = "bfm_to_flame/uv_idm.obj"
-SRC_TEX   = "bfm_to_flame/uv_idm.png"
-TGT_OBJ   = "bfm_to_flame/deca.obj"
-LM_BFM    = "landmarks/uv_idm.mat"
-LM_DECA   = "landmarks/deca.npy"
-OUT_DIR   = "output"
+import argparse as _ap
+_parser = _ap.ArgumentParser(description="BFM → FLAME/DECA texture transfer",
+                              add_help=True)
+_parser.add_argument("--src-obj", default="bfm_to_flame/uv_idm.obj",
+                     help="Source BFM/UV-IDM mesh (.obj)")
+_parser.add_argument("--src-tex", default="bfm_to_flame/uv_idm.png",
+                     help="Source texture image (.png)")
+_parser.add_argument("--tgt-obj", default="bfm_to_flame/deca.obj",
+                     help="Target DECA/FLAME mesh (.obj)")
+_parser.add_argument("--lm-bfm",  default="landmarks/uv_idm.mat",
+                     help="BFM landmarks (.mat)")
+_parser.add_argument("--lm-deca", default="landmarks/deca.npy",
+                     help="DECA landmarks (.npy)")
+_parser.add_argument("--out-dir", default="output",
+                     help="Output directory")
+# ── Ablation flags ────────────────────────────────────────────────────────────
+_parser.add_argument("--no-icp", action="store_true",
+                     help="Ablation: skip ICP, use Procrustes only")
+_parser.add_argument("--hard-gate", type=float, default=None, metavar="DIST",
+                     help="Ablation: replace soft-confidence with hard distance gate "
+                          "(vertices beyond DIST get zero weight / black)")
+_parser.add_argument("--no-gauss-blend", action="store_true",
+                     help="Ablation: skip Pass-C Gaussian boundary blending")
+_args = _parser.parse_args()
+
+SRC_OBJ         = _args.src_obj
+SRC_TEX         = _args.src_tex
+TGT_OBJ         = _args.tgt_obj
+LM_BFM          = _args.lm_bfm
+LM_DECA         = _args.lm_deca
+OUT_DIR         = _args.out_dir
+ABL_NO_ICP      = _args.no_icp
+ABL_HARD_GATE   = _args.hard_gate   # float or None
+ABL_NO_GAUSS    = _args.no_gauss_blend
 
 TEX_SIZE      = 1024
 BATCH_SZ      = 10_000
@@ -457,7 +485,10 @@ bfm_aligned = trimesh.Trimesh(vertices=bfm_verts_aligned,
 # 3. POINT-TO-PLANE ICP  (voxel-downsampled)
 # ─────────────────────────────────────────────────────────────────────────────
 print("\n[Step 2/5] Point-to-Plane ICP (3-pass) …")
-if HAS_O3D:
+if ABL_NO_ICP:
+    bfm_verts_final = bfm_verts_aligned.copy()
+    print("  [ABLATION --no-icp] Skipped — using Procrustes result only.")
+elif HAS_O3D:
     def _to_pcd(m):
         pcd = o3d.geometry.PointCloud()
         pcd.points  = o3d.utility.Vector3dVector(np.array(m.vertices,       np.float64))
@@ -523,7 +554,7 @@ if HAS_O3D:
     print(f"  ICP pass-2   fitness {r2.fitness:.6f}  |  inlier RMSE {r2.inlier_rmse:.6f}")
     del src_full, tgt_full, src_fine, tgt_fine, src_fine_d, tgt_fine_d, bfm_pass2; gc.collect()
 else:
-    bfm_verts_final = bfm_verts_aligned
+    bfm_verts_final = bfm_verts_aligned.copy()
     print("  (skipped – open3d unavailable)")
 
 bfm_aligned = trimesh.Trimesh(vertices=bfm_verts_final,
@@ -578,19 +609,30 @@ print(f"  Distances — p50={p50:.5f}  p95={p95:.5f}  p99={p99:.5f}")
 print(f"  Would-cover at p95 threshold : {(all_dist <= p95).sum()}/{N} "
       f"({(all_dist <= p95).sum()/N*100:.1f}%)  ← old hard-gate behaviour")
 
-# ── (c) Soft confidence weights (NO hard rejection) ───────────────────────────
-#   w_dist : 1.0 at dist=0, linear falloff, 0.0 at DIST_CAP_v (= p99)
-w_dist_v  = np.clip(1.0 - all_dist / (DIST_CAP_v + 1e-10), 0.0, 1.0).astype(np.float32)
-
+# ── (c) Confidence weights ────────────────────────────────────────────────────
 bfm_fn_v  = bfm_face_n[all_tri]                            # (N,3)
 dots      = (deca_vn * bfm_fn_v).sum(1)                   # (N,)
 print(f"  Normal dots — min={dots.min():.3f}  mean={dots.mean():.3f}  max={dots.max():.3f}")
-if dots.mean() < 0:                                        # auto-fix flipped normals
+if dots.mean() < 0:
     print("  [WARN] Mean dot < 0 → BFM normals appear flipped. Inverting bfm_face_n.")
     bfm_face_n = -bfm_face_n
     dots       = -dots
-#   w_norm : 0.0 at dot=−0.8 (≈144°), 1.0 at dot=1.0 — no hard cutoff
-w_norm_v  = np.clip((dots + 0.8) / 1.8, 0.0, 1.0).astype(np.float32)
+
+if ABL_HARD_GATE is not None:
+    # ABLATION: hard binary gate — vertices beyond threshold get weight 0 (→ black gap)
+    gate       = ABL_HARD_GATE
+    w_dist_v   = (all_dist <= gate).astype(np.float32)
+    w_norm_v   = np.ones(len(dots), dtype=np.float32)
+    print(f"  [ABLATION --hard-gate={gate}] hard binary gate. "
+          f"  Excluded: {(all_dist > gate).sum()}/{len(all_dist)} vertices "
+          f"({(all_dist > gate).sum()/len(all_dist)*100:.1f}% → black gaps expected)")
+else:
+    # Default: soft confidence — no hard rejection, 100% coverage
+    #   w_dist : 1.0 at dist=0, linear falloff to 0.0 at p99
+    w_dist_v = np.clip(1.0 - all_dist / (DIST_CAP_v + 1e-10), 0.0, 1.0).astype(np.float32)
+    #   w_norm : 0.0 at dot=−0.8 (≈144°), 1.0 at dot=1.0
+    w_norm_v = np.clip((dots + 0.8) / 1.8, 0.0, 1.0).astype(np.float32)
+
 vertex_confidence = (w_dist_v * w_norm_v).astype(np.float32)   # (N,) used in baking
 del bfm_fn_v, dots, w_dist_v, w_norm_v
 
@@ -712,19 +754,21 @@ if HAS_CV2:
     out_u8[still_empty] = dilated_bg[still_empty]
 
     # ── Pass C: soft boundary blur — dissolve face/procedural seam line ───────
-    # Build a 1-channel confidence map (1 = face texture, 0 = procedural skin)
-    conf_f32   = covered_mask.astype(np.float32)
-    conf_blur  = cv2.GaussianBlur(conf_f32, (11, 11), 3.0)  # 5-px effective radius
-    # The transition band: pixels between conf=0.1 and conf=0.9
-    blend_band = (conf_blur > 0.05) & (conf_blur < 0.95) & ~covered_mask
-    if blend_band.any():
-        blurred_full = cv2.GaussianBlur(out_u8, (5, 5), 1.5)
-        alpha        = conf_blur[blend_band, None].astype(np.float32)
-        out_u8[blend_band] = np.clip(
-            alpha * out_u8[blend_band].astype(np.float32)
-            + (1.0 - alpha) * blurred_full[blend_band].astype(np.float32),
-            0, 255).astype(np.uint8)
-        del blurred_full
+    if ABL_NO_GAUSS:
+        print("  [ABLATION --no-gauss-blend] Pass C skipped — hard seam preserved.")
+        blend_band = np.zeros_like(covered_mask)
+    else:
+        conf_f32   = covered_mask.astype(np.float32)
+        conf_blur  = cv2.GaussianBlur(conf_f32, (11, 11), 3.0)
+        blend_band = (conf_blur > 0.05) & (conf_blur < 0.95) & ~covered_mask
+        if blend_band.any():
+            blurred_full = cv2.GaussianBlur(out_u8, (5, 5), 1.5)
+            alpha        = conf_blur[blend_band, None].astype(np.float32)
+            out_u8[blend_band] = np.clip(
+                alpha * out_u8[blend_band].astype(np.float32)
+                + (1.0 - alpha) * blurred_full[blend_band].astype(np.float32),
+                0, 255).astype(np.uint8)
+            del blurred_full
 
     out_tex = out_u8.astype(np.float32) / 255.0
     print(f"  Seam near={seam_near.sum():,}  bg_fill={still_empty.sum():,}"

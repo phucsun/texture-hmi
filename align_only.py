@@ -216,14 +216,45 @@ print(f"  Surface RMSE (3k pts): {np.sqrt((d**2).mean()):.6f}")
 # ── Export ────────────────────────────────────────────────────────────────────
 print("Exporting …")
 
+faces = np.array(bfm_mesh.faces, np.int32)
+
+def write_obj_verts(path, label, verts, face_arr):
+    with open(path, "w") as f:
+        f.write(f"# {label}\no {label}\n")
+        for v in verts:
+            f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
+        for fc in face_arr:
+            f.write(f"f {fc[0]+1} {fc[1]+1} {fc[2]+1}\n")
+
+# Step 0 — raw BFM
+write_obj_verts(os.path.join(OUT_DIR, "step_0_raw.obj"),
+                "step_0_raw", bfm_verts, faces)
+
+# Step 1 — after axis check + pre-scale (bfm_verts_c is in DECA coordinate frame)
+write_obj_verts(os.path.join(OUT_DIR, "step_1_axis_scale.obj"),
+                "step_1_axis_scale", bfm_verts_c + deca_mean, faces)
+
+# Step 2 — after Procrustes
+write_obj_verts(os.path.join(OUT_DIR, "step_2_procrustes.obj"),
+                "step_2_procrustes", bfm_aligned_v, faces)
+
+if HAS_O3D:
+    # Step 3 — after ICP pass 1 (coarse Point-to-Plane)
+    write_obj_verts(os.path.join(OUT_DIR, "step_3_icp1.obj"),
+                    "step_3_icp1", v1, faces)
+    # Step 4 — after ICP pass 1.5 (Point-to-Point stabilise)
+    write_obj_verts(os.path.join(OUT_DIR, "step_4_icp15.obj"),
+                    "step_4_icp15", v15, faces)
+    # Step 5 — after ICP pass 2 (fine Point-to-Plane)
+    write_obj_verts(os.path.join(OUT_DIR, "step_5_icp2.obj"),
+                    "step_5_icp2", bfm_final_v, faces)
+else:
+    # fallback: copy step2 as final
+    write_obj_verts(os.path.join(OUT_DIR, "step_3_icp1.obj"),
+                    "step_3_icp1", bfm_aligned_v, faces)
+
 bfm_out = os.path.join(OUT_DIR, "bfm_aligned.obj")
-faces   = np.array(bfm_mesh.faces, np.int32)
-with open(bfm_out, "w") as f:
-    f.write("# BFM aligned\no bfm_aligned\n")
-    for v in bfm_final_v:
-        f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
-    for fc in faces:
-        f.write(f"f {fc[0]+1} {fc[1]+1} {fc[2]+1}\n")
+write_obj_verts(bfm_out, "bfm_aligned", bfm_final_v, faces)
 print(f"  {bfm_out}  ({len(bfm_final_v):,} verts)")
 
 deca_out   = os.path.join(OUT_DIR, "deca.obj")
